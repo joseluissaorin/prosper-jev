@@ -192,10 +192,10 @@ RULES = [
     (r"phone|teléfono|telèfon", "phone"),
     (r"insur|private|aseguradora|asseguradora", "insurer"),
     (r"anything else|algo más|res més|alguna cosa més|help with anything|else i can", "bye"),
-    (r"do you mean|which one|cuál|quina d|which of", "which"),
+    (r"do you mean|which one|cuál|quina d|which of|would you prefer|which would you|prefereix|prefiere|\\bor the\\b.*\\?|first or the second", "which"),
     (r"which kind of appointment|specialt|especialidad|especialitat", "specialty"),
     (r"when would you like|what day|qué día|quin dia|when would|preference|move it to", "when"),
-    (r"shall i|does that work|do you want me to book|how about|would that work|would you like|is all of that correct|se la reservo|l.hi reservo|le va bien|li va bé|lo confirmo|l.anul|la anulo|es todo correcto|és tot correcte|would any|okay\?", "yes"),
+    (r"shall i|does that work|do you want me to book|how about|would that work|would you like|is all of that correct|sound to you|suena bien|le vendría bien|le vendria bien|us va bé|us va be|li aniria bé|va bé\\?|va bien\\?|se la reservo|l.hi reservo|le va bien|li va bé|lo confirmo|l.anul|la anulo|es todo correcto|és tot correcte|would any|okay\?", "yes"),
     (r"can't help with that|no puedo ayudarle|no el puc ajudar|can only help", "yes"),
     (r"how can i help|what can i do|en qué puedo|en què el puc", "need"),
 ]
@@ -210,6 +210,13 @@ def readback_ok(agent_text: str, exp: dict) -> bool:
     return exp["given"].lower() in a and email in a
 
 
+# una oferta de hueco: la pregunta lleva una hora o un día dentro. Vale en los cuatro idiomas y no depende de
+# cómo la envuelva el agente («How does Monday at 8 sound to you?», «¿Le vendría bien…?», «Us va bé?»).
+HUECO = re.compile(r"\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(?:am|pm|h)\b|\bat \d{1,2}\b|\ba las? \d{1,2}\b|\ba les \d{1,2}\b|"
+                   r"\b(?:monday|tuesday|wednesday|thursday|friday|saturday|lunes|martes|miércoles|miercoles|jueves|viernes|sábado|sabado|"
+                   r"dilluns|dimarts|dimecres|dijous|divendres|dissabte)\b", re.I)
+
+
 def pick(agent_text: str, lines: dict) -> str:
     """Contesta a la PREGUNTA final del agente (la última frase con «?»), no a cualquier palabra de su turno."""
     sents = [x.strip() for x in re.split(r"(?<=[.?!])\s+", agent_text) if x.strip()]
@@ -219,6 +226,12 @@ def pick(agent_text: str, lines: dict) -> str:
         k = _pick(t, lines)
         if k:
             return k
+    # Sin regla que case: si en la pregunta hay un día o una hora, es que está ofreciendo un hueco. Antes se colgaba
+    # aquí y se contaba como fallo del agente, cuando el fallo era del arnés por no conocer esa manera de ofrecer.
+    if qs and HUECO.search(focus):
+        for k in ("yes", "which", "when"):
+            if k in lines:
+                return k
     return "bye" if "bye" in lines else list(lines)[-1]
 
 
