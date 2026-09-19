@@ -22,6 +22,7 @@ import json
 import logging
 import re
 import time
+import unicodedata
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -125,8 +126,15 @@ def _k(t: str) -> str:
 _GLUE = re.compile(r"([a-záéíóúüñç.?!,])([A-ZÁÉÍÓÚÜÑÇ¿¡])")
 
 
+def _latin(w: str) -> bool:
+    letters = [c for c in w if c.isalpha()]
+    return not letters or any(unicodedata.name(c, "").startswith("LATIN") for c in letters)
+
+
 def _unglue(t: str) -> str:
-    """El STT a veces pega frases («GómezNací»): se separan."""
+    """El STT a veces pega frases («GómezNací»): se separan. Y con ruido alucina palabras en otros alfabetos
+    (árabe, cirílico): todas las lenguas de la clínica usan el latino, así que esas se quitan."""
+    t = " ".join(w for w in t.split() if _latin(w))
     return _GLUE.sub(r"\1 \2", t).strip()
 
 
@@ -159,6 +167,9 @@ class VoiceCall:
         self.ring: list[bytes] = []      # últimos ~400 ms de audio (se mandan al abrir el turno)
         self.turn_open = False
         self.close_task: asyncio.Task | None = None
+        self.vad_end_t = 0.0
+        self.closed_t = 0.0
+        self.noisy = False               # voz de fondo continua: el turno lo marca el texto, no el detector
         self.interim_t = 0.0
         self.ears: Ears | None = None
         self.segments: list[str] = []
@@ -279,59 +290,86 @@ class VoiceCall:
 
     async def on_audio(self, pcm: bytes):
         """Un turno = UNA intervención del transcriptor, con los silencios incluidos. Las pausas a mitad de frase
-        no la cortan (cortar en cada pausa hacía que el transcriptor perdiera o duplicara texto). El turno se
-        cierra en close_turn_when_ready: silencio + texto estable + Jev dice que la frase está terminada."""
+        no la cortan (cortar en cada pausa hacía que el transcriptor perdiera o duplicara texto). El turno lo
+        cierra turn_watch: silencio + texto estable + Jev dice que la frase está terminada."""
         if not self.ears or self.finalized:
             return
         events = self.vad.feed(pcm)
         started = False
         for kind, _ in events:
             if kind == "start":
-                if self.turn_t0 is None:
-                    self.turn_t0 = time.time()
-                if self.respond_timer:
-                    self.respond_timer.cancel()
-                    self.respond_timer = None
-                if self.close_task and not self.close_task.done():
-                    self.close_task.cancel()
                 self.act_start_t = time.time()
                 if not self.turn_open:
-                    self.turn_open, started = True, True
-                    act = await self.ears.activity_start(b"".join(self.ring))
-                    if self.first_act is None:
-                        self.first_act = act
+                    started = await self.open_turn()
                 await self.emit("vad", state="speech", agent_speaking=self.agent_speaking)
             elif kind == "end":
-                self.t_speech_end = time.perf_counter()
+                self.t_speech_end = self.vad_end_t = time.perf_counter()
                 await self.emit("vad", state="silence")
-                if self.turn_open:
-                    self.close_task = self.spawn(self.close_turn_when_ready(self.ears.act))
+        # Con ruido de voz continuo (una tele) el detector nunca calla: el turno se reabre solo y es el texto
+        # el que dice si alguien habla.
+        if not self.turn_open and self.noisy and self.vad.speaking and time.perf_counter() - self.closed_t > 0.3:
+            self.act_start_t = time.time()
+            started = await self.open_turn()
         if self.turn_open and not started:
             await self.ears.push(pcm)
         self.ring = (self.ring + [pcm])[-20:]
 
-    async def close_turn_when_ready(self, act: int):
-        t_end = time.perf_counter()
-        while True:
+    async def open_turn(self) -> bool:
+        if self.turn_t0 is None:
+            self.turn_t0 = time.time()
+        if self.respond_timer:
+            self.respond_timer.cancel()
+            self.respond_timer = None
+        self.turn_open = True
+        act = await self.ears.activity_start(b"".join(self.ring))
+        if self.first_act is None:
+            self.first_act = act
+        self.close_task = self.spawn(self.turn_watch(act))
+        return True
+
+    async def turn_watch(self, act: int):
+        """Decide cuándo se cierra el turno. Normal: silencio del detector + texto estable + «terminada» de Jev.
+        Ruido de voz de fondo: el detector sigue oyendo voz, pero el texto ya no cambia."""
+        t_open = time.perf_counter()
+        while self.turn_open and self.ears and self.ears.act == act:
             await asyncio.sleep(0.05)
-            if self.vad.speaking or not self.turn_open or (self.ears and self.ears.act != act):
-                return
-            silence = time.perf_counter() - t_end
-            stable = time.perf_counter() - self.interim_t
+            now = time.perf_counter()
+            speaking = self.vad.speaking
+            silence = 0.0 if speaking else now - self.vad_end_t
+            stable = now - self.interim_t if self.interim else 0.0
             full = " ".join(self.segments + [self.interim]).strip()
             p = self.spec.get(_k(full)) if full else None
             fin = p.finished if p is not None else None
-            if (silence >= 1.3
-                    or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
-                    or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
+            why = None
+            if not speaking:
+                if (silence >= 1.3
+                        or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
+                        or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
+                    why = f"silencio {silence:.2f} s"
+            elif self.interim and ((stable >= 1.2 and fin is not None and fin >= 0.7) or stable >= 2.5):
+                why = "el detector oye voz de fondo pero el texto no cambia"
+                self.noisy = True
+            elif now - t_open >= 25:
+                why = "turno de más de 25 s"
+                self.noisy = True
+            if why:
                 self.turn_open = False
+                self.closed_t = now
                 await self.ears.activity_end()
                 self.spawn(self.watchdog(act))
-                await self.emit("log", msg=f"turno cerrado: silencio {silence:.2f} s, texto estable {stable:.2f} s, terminada {fin}")
+                await self.emit("log", msg=f"turno cerrado: {why}, texto estable {stable:.2f} s, terminada {fin}")
                 return
+
+    def caller_talking(self) -> bool:
+        """¿Está hablando quien llama? Con ruido de fondo el detector no sirve: cuenta el texto nuevo."""
+        if self.noisy:
+            return self.turn_open and bool(self.interim) and time.time() - self.act_start_t > 0.3
+        return self.vad.speaking and time.time() - self.act_start_t > 0.3
 
     async def on_interim(self, tag: str, text: str):
         text = _unglue(text)
+        if not text:
+            return
         if not self.turn_open and self.ears and self.ears.act in self.ears.texts:
             return      # parcial atrasado de una intervención que ya tiene su definitivo
         if self.is_echo(text):
@@ -350,6 +388,8 @@ class VoiceCall:
 
     async def on_final(self, tag: str, text: str, lag_ms, act: int, duplicate: bool = False):
         text = _unglue(text)
+        if not text:
+            return
         if duplicate:
             await self.emit("log", msg=f"sesión {tag}: definitivo redundante ({lag_ms} ms)")
             if self.first_turn and tag == "o1":
@@ -442,10 +482,10 @@ class VoiceCall:
         atrasados de la frase anterior llegan cuando el agente ya contesta y no son una interrupción."""
         if not self.agent_speaking or not self.speak_task or self.speak_task.done():
             return
-        if not self.vad.speaking or getattr(self, "act_start_t", 0) < getattr(self, "agent_start_t", 0) + 0.15:
+        if not (self.turn_open if self.noisy else self.vad.speaking) or getattr(self, "act_start_t", 0) < getattr(self, "agent_start_t", 0) + 0.15:
             return
         act, c = p.act
-        if p.n("emergency") >= 0.5 or (act not in ("backchannel", None) and c >= 0.6 and len(full.split()) >= 2):
+        if p.n("emergency") >= 0.5 or (act not in ("backchannel", "unclear", None) and c >= 0.6 and len(full.split()) >= 2):
             self.speak_task.cancel()
             self.speaking_until = 0
             await self.emit("stop_audio", reason=f"interrupción ({act} {c:.2f})")
@@ -540,7 +580,7 @@ class VoiceCall:
         async with self.lock:
             if not self.call or self.call.s.ended:
                 return
-            if not typed and self.vad.speaking and time.time() - self.act_start_t > 0.3:
+            if not typed and self.caller_talking():
                 await self.emit("log", msg="sigue hablando: se espera al final del turno")
                 return
             # Un turno que empezó antes de la última respuesta (o que la completa) no puede contestarla.
