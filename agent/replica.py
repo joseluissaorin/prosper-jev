@@ -50,6 +50,8 @@ sys.path.insert(0, str(HERE.parent / "demo"))
 from google.genai import types  # noqa: E402
 
 from brain import Brain  # noqa: E402
+if os.environ.get("AGENT") == "v2":
+    from conv import Conv as Brain  # noqa: E402,F811
 from prosper_api import MADRID  # noqa: E402
 from system2 import CLIENT  # noqa: E402
 
@@ -94,6 +96,42 @@ def board_session():
         return None
 
 
+WDS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+
+
+def retarget_dates(c: dict, today) -> None:
+    """Los guiones de los casos se generaron el viernes y llevan la fecha absoluta de la frase relativa («you mean
+    Saturday 19 September 2026»). Prosper los regenera cada día; aquí se recalcula esa fecha para HOY a partir de la
+    frase, con la misma regla que publica el enunciado (un día de la semana es el primero estrictamente después de hoy)."""
+    from datetime import timedelta
+    pr = c.get("caller_prompt", "")
+    m = re.search(r"appointment (.+?) because", pr)
+    mm = re.search(r"you mean (\w+day) (\d{1,2}) (\w+) (\d{4})", pr)
+    if not m or not mm:
+        return
+    ph = m.group(1).lower()
+    nxt = lambda w: today + timedelta(days=((w - today.weekday() - 1) % 7) + 1)
+    d = None
+    if "day after tomorrow" in ph:
+        d = today + timedelta(days=2)
+    elif "tomorrow" in ph:
+        d = today + timedelta(days=1)
+    elif "a week from today" in ph:
+        d = today + timedelta(days=7)
+    elif "fortnight" in ph:
+        d = today + timedelta(days=14)
+    elif "twelfth of october" in ph:
+        return
+    else:
+        w = next((i for i, x in enumerate(WDS) if x in ph), None)
+        if w is not None:
+            d = nxt(w)
+    if d:
+        new = f"you mean {WDS[d.weekday()].title()} {d.day} {MONTHS[d.month - 1]} {d.year}"
+        c["caller_prompt"] = pr.replace(mm.group(0), new)
+
+
 def load_cases(todos: bool) -> tuple[list[dict], set[str]]:
     data = json.loads(CASES_FILE.read_text())
     cases = data["cases"]
@@ -110,7 +148,9 @@ def load_cases(todos: bool) -> tuple[list[dict], set[str]]:
                     today[ex["case_id"]] = ex.get("accepted") or []
         except Exception as e:  # noqa: BLE001
             print(f"(no se pudieron leer las respuestas de hoy: {e})")
+    now = datetime.now(MADRID).date()
     for c in cases:
+        retarget_dates(c, now)
         c["accepted"] = today.get(c["id"]) or c["expected"]["acceptable"]
         c["accepted_today"] = c["id"] in today
     if not todos and open_ids:
@@ -326,7 +366,7 @@ async def main():
     if not cases:
         print("No hay casos que pasar.")
         return
-    print(f"{len(cases)} casos × {a.rep} · {a.par} a la vez · llamante {CALLER_MODEL} · API real en solo lectura, sin enviar"
+    print(f"[{os.environ.get('AGENT', 'v1')}] {len(cases)} casos × {a.rep} · {a.par} a la vez · llamante {CALLER_MODEL} · API real en solo lectura, sin enviar"
           + (f" · abiertos: {len(open_ids)}" if open_ids else ""))
     sem = asyncio.Semaphore(a.par)
     t0 = time.time()
