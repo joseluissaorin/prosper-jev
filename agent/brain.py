@@ -1908,7 +1908,7 @@ class Brain:
         s = self.s
         full = {"call_id": s.call_id, **body}
         if self._dry:
-            return []
+            return [self._log("would_write", action=action)]
         if any(x["route"] == action and x["body"] == full for x in s.submitted):
             return []
         entry = {"route": action, "body": full, "action": action.upper().replace("-", "_"), "t": round(time.time() - s.started, 2)}

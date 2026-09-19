@@ -80,6 +80,9 @@ def english_phrases() -> list[tuple[str, str]]:
     if AGENT == "v2":
         import conv as C
         out += [(v, lang) for d in C.ACK.values() for lang, v in d.items()]
+        # lo que ahora dice el CÓDIGO (compositor y carril rápido): sin voz en caché no habría ganado nada
+        out += [(v, lang) for d in list(C.SPEAK.values()) + list(C.ASK.values()) for lang, v in d.items() if "{" not in v]
+        out += [(v, lang) for d in C.DONE.values() for lang, v in d.items() if "{" not in v]
         out += [(v, lang) for lang, v in C.SORRY.items() if lang in ("en", "es", "ca")]
         out += [(v, lang) for lang, v in C.EMERGENCY.items() if lang in ("en", "es", "ca")]
         out += [(C.GREET.format(dp=dp), "en") for dp in ("morning", "afternoon", "evening")]
@@ -327,18 +330,9 @@ class TwilioCall(demo.VoiceCall):
         await self.emit("voice", source=r.source, ready=ready, first_ms=r.first_ms, gaps=gaps, text=text[:80])
 
     def early_ack(self, text: str):
-        """Acuse del planificador («Un momento, lo miro») mientras trabajan las herramientas: suena ya, y la respuesta
-        espera a que termine en vez de cortarlo."""
+        """Acuse del planificador («Un momento, lo miro») mientras trabajan las herramientas: suena ya, y la
+        respuesta espera a que termine en vez de cortarlo (lo espera `VoiceCall.speak_outs`)."""
         self.ack_task = self.spawn(self.speak_outs([{"kind": "say", "text": text, "act": "ack"}]))
-
-    async def speak_outs(self, outs: list[dict]):
-        ack = getattr(self, "ack_task", None)
-        if ack is not None and ack is not asyncio.current_task() and not ack.done():
-            try:
-                await asyncio.shield(ack)
-            except Exception:  # noqa: BLE001
-                pass
-        await super().speak_outs(outs)
 
     async def maybe_barge(self, full: str, p):
         before = self.speak_task and not self.speak_task.done()

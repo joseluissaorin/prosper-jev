@@ -476,7 +476,10 @@ class SileroVad:
     MODEL = Path(os.environ.get("SILERO_VAD", str(Path.home() / ".cache/silero/silero_vad.onnx")))
     _sess = None
 
-    def __init__(self, end_ms: int = 250, on_p: float = 0.5, off_p: float = 0.35):
+    # 180 ms: el detector neuronal distingue voz de ruido de sobra, y cada milisegundo aquí es un milisegundo de
+    # silencio que oye quien llama. Una pausa a mitad de frase no cierra el turno igualmente: eso lo deciden el
+    # texto estable y el «¿ha terminado?» de Jev, no el detector.
+    def __init__(self, end_ms: int = 180, on_p: float = 0.5, off_p: float = 0.35):
         import onnxruntime as ort
         if SileroVad._sess is None:
             so = ort.SessionOptions()

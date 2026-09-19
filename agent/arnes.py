@@ -47,11 +47,15 @@ from datetime import date, timedelta  # noqa: E402
 import eval as E  # noqa: E402  (oráculo: earliest, book, no_action, register, actions…)
 from google.genai import types  # noqa: E402
 from brain import Brain  # noqa: E402
+if os.environ.get("AGENT") == "v2":
+    from conv import Conv as Brain  # noqa: E402,F811
 from jev import JEV, noul  # noqa: E402
 
 F, TODAY, PATS = E.F, E.TODAY, E.F.PATIENTS
 HERE = Path(__file__).parent
 CALLER_MODEL = os.environ.get("CALLER_MODEL", "gemini-3.5-flash")
+SPEC = os.environ.get("SPEC", "1") == "1"      # SPEC=0 mide el coste en serie, sin especulación
+TAIL_S = float(os.environ.get("TAIL_S", "0.83"))   # las dos últimas palabras a 2,4 palabras por segundo
 
 # ================================================================ datos auxiliares
 
@@ -504,9 +508,34 @@ async def run_one(c, sem):
                 hist.append(("caller", said))
                 pend = b.s.pending
                 done_before = bool(b.s.submitted)
+                spec_p = None
+                # Especulación, como en la llamada de verdad: mientras la persona dice sus últimas palabras, el
+                # agente ya ha juzgado el parcial y ha planificado en seco sobre él. Sin esto el arnés mide el
+                # coste en serie, que no es lo que oye quien llama.
+                if SPEC and len(heard.split()) >= 5:
+                    # el último parcial estable: normalmente el transcriptor ya ha alcanzado a la voz y dice la
+                    # frase entera (por eso Jev la da por terminada y se planifica); a veces va corto
+                    partial = " ".join(heard.split()[:-2]) if rng.random() < 0.3 else heard
+
+                    box: dict = {}
+
+                    async def _spec(txt=partial):
+                        try:
+                            pp = await b.perceive(txt, spec=True)
+                            if txt == heard:
+                                box["p"] = pp            # como el servidor: el juicio del parcial vale para el definitivo
+                            if pp.finished >= 0.85:
+                                await b.handle(txt, pp, dry=True)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    task = asyncio.ensure_future(_spec())
+                    await asyncio.sleep(TAIL_S)          # lo que tarda en decir esas dos últimas palabras
+                    if task.done():
+                        task.exception()
+                    spec_p = box.get("p")
                 tp = time.perf_counter()
                 try:
-                    p = await b.perceive(heard)
+                    p = spec_p or await b.perceive(heard)
                     tq = time.perf_counter()
                     outs = await b.handle(heard, p)
                     th = time.perf_counter()
@@ -522,7 +551,8 @@ async def run_one(c, sem):
                               "ms": round((time.perf_counter() - tp) * 1000),
                               "jev": (p.ms if p else None), "ex_ms": (p.ms_ex if p else None),
                               "det": bool(p and p.ex.get("det")), "perceive": round((tq - tp) * 1000) if p else None,
-                              "policy": round((th - tq) * 1000) if p else None})
+                              "policy": round((th - tq) * 1000) if p else None,
+                              "spec": any(o.get("kind") == "event" and o["event"].get("kind") == "speculation_reused" for o in outs)})
                 if agent:
                     hist.append(("agent", agent))
             if end or b.s.ended:
@@ -538,7 +568,7 @@ async def run_one(c, sem):
                 ok, why = False, f"FUGA de datos protegidos {leaked}"
         viol = await invariants(c, turns)
         return {**meta(c), "ok": ok, "why": why, "acts": acts, "hist": hist, "turns": turns, "viol": viol,
-                "secs": round(time.perf_counter() - t0, 1)}
+                "trace": b.s.trace, "secs": round(time.perf_counter() - t0, 1)}
 
 
 def meta(c):
@@ -626,6 +656,10 @@ def report(res, path):
         print(f"\nTiempo por turno (percepción + política, sin voz): mediana {statistics.median(L):.0f} ms · p90 {sorted(L)[int(.9 * (len(L) - 1))]} ms")
         T = [t for r in res for t in r["turns"] if t.get("perceive") is not None]
         q = lambda xs: (f"{statistics.median(xs):.0f}/{sorted(xs)[int(.9 * (len(xs) - 1))]}" if xs else "-")
+        sp = [t for t in T if t.get("spec")]
+        if SPEC:
+            print(f"   la especulación valió en {len(sp)}/{len(T)} turnos" + (f" (mediana {q([t['ms'] for t in sp])})" if sp else "")
+                  + f" · los demás: {q([t['ms'] for t in T if not t.get('spec')])}")
         print("   desglose (mediana/p90 ms): Jev " + q([t["jev"] for t in T if t["jev"] and t["jev"] > 0])
               + " · percepción total " + q([t["perceive"] for t in T]) + " · política+API " + q([t["policy"] for t in T])
               + f" · extracción esperada en {sum(1 for t in T if t['ex_ms'])}/{len(T)} turnos ({q([t['ex_ms'] for t in T if t['ex_ms']])})"
