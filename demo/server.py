@@ -170,6 +170,8 @@ class VoiceCall:
         self.vad_end_t = 0.0
         self.closed_t = 0.0
         self.turn_text = False
+        self.turn_pcm: list[bytes] = []
+        self.act_audio: dict[int, list[bytes]] = {}
         self.noisy = False               # voz de fondo continua: el turno lo marca el texto, no el detector
         self.interim_t = 0.0
         self.ears: Ears | None = None
@@ -313,6 +315,7 @@ class VoiceCall:
             self.act_start_t = time.time()
             started = await self.open_turn()
         if self.turn_open and not started:
+            self.turn_pcm.append(pcm)
             await self.ears.push(pcm)
         self.ring = (self.ring + [pcm])[-20:]
 
@@ -324,7 +327,13 @@ class VoiceCall:
             self.respond_timer = None
         self.turn_open = True
         self.turn_text = False           # ¿ha llegado ya algún parcial de ESTE turno?
-        act = await self.ears.activity_start(b"".join(self.ring))
+        pre = b"".join(self.ring)
+        act = await self.ears.activity_start(pre)
+        # el audio de cada intervención, por si hay que volver a transcribirla (cifras)
+        self.turn_pcm = [pre]
+        self.act_audio[act] = self.turn_pcm
+        for old in [a for a in self.act_audio if a < act - 6]:
+            del self.act_audio[old]
         if self.first_act is None:
             self.first_act = act
         self.close_task = self.spawn(self.turn_watch(act))
@@ -613,6 +622,8 @@ class VoiceCall:
                 p, full = await self.decide_language(p, full)
             self.segments = []
             self.respond_timer = None
+            # audio de lo que se contesta (las intervenciones desde la última respuesta), para una segunda opinión
+            self.call.audio = b"".join(b"".join(self.act_audio.get(a, [])) for a in range(self.answered_act + 1, self.final_act + 1))
             self.answered_text = full
             self.answered_act = self.final_act
             self.undo_requested = False

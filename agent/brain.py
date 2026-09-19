@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import difflib
 import json
 import math
 import os
@@ -429,10 +430,11 @@ class Brain:
         s = self.s
         if p.ex_task is not None and not p.ex and not getattr(self, "_dry", False):
             p.ex, p.ms_ex = await p.ex_task
+        pre = [] if getattr(self, "_dry", False) else await self.check_digits(text, p)
         s.history.append(f"Caller: {text}")
         out = [self._log("perception", text=text, ms=p.ms, ms_ex=p.ms_ex,
                          j={k: (v.get("choice"), v.get("confidence")) if v["type"] == "choice" else v.get("noul") for k, v in p.raw.items()},
-                         ex={k: v for k, v in p.ex.items() if v})]
+                         ex={k: v for k, v in p.ex.items() if v})] + pre
         act, ac = p.act
         if getattr(self, "no_confirm", False) and act == "confirm":
             act, ac = "provide_info", ac   # empezó antes de nuestra última pregunta: no puede ser su «sí»
@@ -1010,6 +1012,68 @@ class Brain:
 
     REG_FIELDS = ["given_name", "surnames", "national_id", "date_of_birth", "phone", "email", "insurer"]
 
+    # ------------------------------------------------------------ cifras: segunda opinión
+
+    def digits_kind(self, text: str) -> str | None:
+        """¿Esperamos cifras en este turno? Teléfono en el alta; DNI/NIE (7-8 cifras) en el alta o al identificar."""
+        s = self.s
+        if s.pending == "reg_phone":
+            return "phone"
+        n = sum(c.isdigit() for c in text) or len(self.spoken_digits(text))
+        if (s.pending == "reg_national_id" or s.pending.startswith("identity") or not s.patient) and 5 <= n <= 8:
+            return "id"
+        return None
+
+    @staticmethod
+    def spoken_digits(text: str) -> str:
+        return "".join(DIGITS.get(w, w if w.isdigit() else "") for w in re_findall(r"[a-z]+|\d+", fold(text)))
+
+    def digits_ok(self, kind: str, text: str, ex: dict) -> bool:
+        if kind == "phone":
+            return len("".join(c for c in (ex.get("phone") or "") if c.isdigit()) or self.spoken_digits(text)) >= 9
+        cands = [x for x in (ex.get("national_id"), spoken_id(text)) if x]
+        return any(normalize_national_id(x)[0] for x in cands)
+
+    async def check_digits(self, text: str, p: P) -> list[dict]:
+        """El transcriptor en directo comprime las cifras repetidas («dos dos dos» → «2»). Si lo que esperamos es un
+        teléfono o un DNI y no valida, se vuelve a transcribir el audio del turno con Flash-Lite (≈1 s, solo entonces)."""
+        kind = self.digits_kind(text)
+        if not kind or self.digits_ok(kind, text, p.ex):
+            return []
+        alt, ms = await self.second_opinion()
+        if not alt or not self.digits_ok(kind, alt, {}):
+            return [self._log("second_opinion", kind=kind, text=alt, ms=ms, used=False)]
+        p.ex = dict(p.ex)
+        if kind == "phone":
+            p.ex["phone"] = self.spoken_digits(alt)
+        else:
+            p.ex["national_id"] = next(x for x in (spoken_id(alt),) if x and normalize_national_id(x)[0])
+        p.text = alt
+        return [self._log("second_opinion", kind=kind, text=alt, ms=ms, used=True)]
+
+    async def second_opinion(self) -> tuple[str | None, int]:
+        audio = getattr(self, "audio", b"")
+        if len(audio) < 16000 * 2 * 0.3:
+            return None, 0
+        import io
+        import wave
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1), w.setsampwidth(2), w.setframerate(16000)
+            w.writeframes(audio)
+        t0 = time.perf_counter()
+        try:
+            r = await asyncio.wait_for(GEMINI.aio.models.generate_content(
+                model=EXTRACT_MODEL,
+                contents=[types.Part.from_bytes(data=buf.getvalue(), mime_type="audio/wav"),
+                          "Transcribe this phone-call audio exactly. Write every digit as a numeral and keep repeated digits "
+                          "(e.g. 'two two two' -> 222). Keep spelled letters. No commentary."],
+                config=types.GenerateContentConfig(temperature=0, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))),
+                timeout=3.5)
+            return (r.text or "").strip() or None, round((time.perf_counter() - t0) * 1000)
+        except Exception:  # noqa: BLE001
+            return None, round((time.perf_counter() - t0) * 1000)
+
     def absorb_register(self, p: P) -> list[dict]:
         """Cada dato del alta se toma cuando es el que se ha preguntado (o si aún no se ha empezado y lo dice todo
         de una vez). Así un apellido no sale del DNI ni el seguro de otra frase."""
@@ -1060,12 +1124,33 @@ class Brain:
             digits = "".join(c for c in (ex.get("phone") or "") if c.isdigit()) or "".join(DIGITS.get(w, w if w.isdigit() else "") for w in re_findall(r"[a-z]+|\d+", fold(text)))
             if len(digits) >= 9:
                 s.reg["phone"] = digits
+            else:
+                s.reg["_phone_tries"] = s.reg.get("_phone_tries", 0) + 1
+                if s.reg["_phone_tries"] >= 3 and len(digits) >= 6:
+                    s.reg["phone"] = digits          # sin bucles: la lectura final lo deja corregir
         if ex.get("email") and (ask == "email" or "@" in ex["email"]):
-            s.reg["email"] = ex["email"].strip().lower().replace(" ", "")
+            s.reg["email"] = self.email_like_name(ex["email"].strip().lower().replace(" ", ""))
         ins, ic = p.c("insurer")
         if ins and ins != "none" and ic >= 0.6 and ask == "insurer":
             s.reg["insurer"] = ins
         return out
+
+    def email_like_name(self, email: str) -> str:
+        """«alina.castro@…» de una Elena Castro: lo que se oyó mal es el nombre, que ya sabemos cómo se escribe.
+        Solo con una palabra MUY parecida al nombre o a un apellido; la lectura final lo confirma."""
+        if "@" not in email:
+            return email
+        local, dom = email.split("@", 1)
+        names = [fold(self.s.reg.get(k) or "").replace(" ", "") for k in ("given_name", "first_surname", "second_surname")]
+        parts = [x for x in re_findall(r"[a-z]+|[^a-z]+", local)]
+        for i, w in enumerate(parts):
+            if not w.isalpha() or len(w) < 4:
+                continue
+            for n in names:
+                if n and w != n and len(w) == len(n) and difflib.SequenceMatcher(None, w, n).ratio() >= 0.6:
+                    parts[i] = n
+                    break
+        return "".join(parts) + "@" + dom
 
     def next_register(self) -> list[dict]:
         s, r = self.s, self.s.reg
@@ -1076,6 +1161,8 @@ class Brain:
         missing = [f for f in self.REG_FIELDS if (f != "surnames" and not r.get(f)) or (f == "surnames" and not (r.get("first_surname") and r.get("second_surname")))]
         if missing:
             f = missing[0]
+            if f == "phone" and s.pending == "reg_phone" and s.reg.get("_phone_tries", 0) >= 1:
+                return [self._say("reg_phone_groups")]
             s.pending = f"reg_{f}"
             intro = [self._say("reg_intro")] if not getattr(self, "_reg_started", False) else []
             self._reg_started = True
