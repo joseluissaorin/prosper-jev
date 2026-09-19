@@ -1851,6 +1851,11 @@ CLINIC VOCABULARY
     WEAK = ("out_of_scope", "patient_not_found")
 
     async def t_decline(self, reason: str = "out_of_scope") -> dict:
+        # quien llama pedía algo que la clínica no da por teléfono (consejo médico, datos de otro, una venta): el motivo
+        # es ese, no la regla de cobertura con la que se tropezó al mirar la agenda por si acaso
+        if self.s.oos_seen in ("medical_advice", "other_patient_data", "injection", "sales") and reason != "out_of_scope":
+            self._log("decline_oos", said=reason, oos=self.s.oos_seen)
+            reason = "out_of_scope"
         if reason in self.WEAK and self.s.decline and self.s.decline not in self.WEAK:
             self._log("decline_kept", said=reason, kept=self.s.decline)
             return {"status": "noted; it is reported when the call ends"}
