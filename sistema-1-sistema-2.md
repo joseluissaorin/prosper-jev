@@ -337,3 +337,51 @@ Está en `demo/`, con su propio `README.md`:
 - **18 de 18 escenarios** en texto.
 - **Diez reservas a la vez** sin huecos repetidos.
 - **Pruebas de voz sin micrófono:** reserva en español y en gallego, y urgencia.
+
+## Cada turno es un conjunto de jugadas
+
+Lo que enseñó el arnés de Prosper, llamada tras llamada, es que los fallos casi nunca eran de voz. Eran de pragmática: quien llama acepta y pregunta a la vez («Monday at nine is fine, which entrance should I use?»), acepta con condición («yes, if he's the GP»), pregunta por la oferta en vez de contestarla, saluda y espera, comprueba si seguimos ahí, repite la preferencia al aceptar, mete dos palabras en otro idioma o sigue hablando cuando la gestión ya está hecha. La política estaba escrita como diecisiete estados de «qué pregunta está pendiente», cada uno con uno o dos actos previstos, y todo lo demás caía en un comportamiento por defecto equivocado: rechazar, repetir la última intervención entera o volver a buscar. Parchear cada caso no escala; hace falta cambiar la unidad de análisis.
+
+### La idea
+
+Un turno de quien llama no es la respuesta a nuestra pregunta, es un **conjunto de jugadas** independientes, y la respuesta del agente también lo es.
+
+1. **Percepción de jugadas, en la misma llamada a Jev.** Además de lo que ya se pregunta, un bloque universal de preguntas `noul` independientes, válidas en cualquier estado: ¿saluda?, ¿comprueba si seguimos ahí?, ¿acepta lo propuesto?, ¿lo acepta con una condición (y cuál)?, ¿rechaza?, ¿añade o cambia una preferencia (día, franja, sede, médico)?, ¿corrige un dato?, ¿hace una pregunta (y de qué tema)?, ¿quiere terminar?, ¿es solo una muletilla? Son independientes, así que caben varias a la vez. No añade latencia: es la misma petición de ~300 ms, especulada sobre los parciales.
+2. **Un libro de estado declarativo** en lugar de «lo pendiente»: el objetivo (qué y para quién), los datos conocidos con su procedencia, la **propuesta abierta** (oferta, cita objetivo o lectura del alta) con su contenido, la pregunta que hicimos, las acciones hechas y una **cola de preguntas de quien llama**.
+3. **Conciliación en código (microsegundos).** Cada jugada tiene un efecto definido una sola vez, sin depender del estado:
+   - *acepta* → si hay propuesta abierta, se ejecuta;
+   - *acepta con condición* → se comprueba la condición con los datos del catálogo (¿es de cabecera?, ¿está en esa sede?) y se ejecuta o se aclara;
+   - *preferencia* → se actualiza; la propuesta abierta solo cae si la **incumple** (repetir «el lunes a las nueve» al aceptar ya no es un rechazo);
+   - *corrige* → se cambia el dato y se invalida lo que dependía de él;
+   - *pregunta* → a la cola;
+   - *saluda / ¿sigue ahí?* → acuse;
+   - *termina* → cierre, salvo que quede una propuesta sin contestar.
+4. **Un planificador puro** que compone la respuesta en orden fijo: acuse (si lo hay) → respuestas a la cola de preguntas → resultado de lo ejecutado («queda reservada…») → **una sola** jugada siguiente (el dato que falta, una propuesta nueva o «¿algo más?»). Nunca repite un saludo; repetir una propuesta es repetir solo la propuesta. Con la gestión hecha no se vuelve a buscar.
+
+Con esto, cualquier combinación sale sola: «sí, ¿y por qué entrada?» = ejecutar + contestar + «¿algo más?», sin código para ese caso. Los diecisiete estados se quedan en lo que son de verdad (qué dato falta), y lo transversal deja de repetirse en cada uno.
+
+### Preguntas sin LLM en el camino crítico
+
+Casi todas las preguntas reales tienen respuesta en el catálogo: horario de cada sede, dirección, qué médico es de qué especialidad, en qué sedes pasa consulta, qué idiomas habla, qué cubre cada seguro, festivos. Se precalcula un **banco de respuestas** al arrancar y Jev elige el tema en la misma llamada (`choice` entre temas, con el médico o la sede de las otras preguntas como argumento). Respuesta de plantilla, 0 ms, y ya grabada en la caché de voz. El Sistema 2 (Flash-Lite con la guardia de Jev) queda solo para lo que no está en el banco, y mientras piensa se tapa con un acuse breve ya grabado.
+
+### La latencia más baja posible
+
+Hoy la mediana es ~1,3 s desde que quien llama deja de hablar. El reparto: el detector declara silencio a los 250 ms, el turno se cierra con 0,3–1,3 s de silencio y texto estable, el definitivo del transcriptor tarda ~250 ms más y, si hace falta, Jev (~300 ms), extracción (~800 ms) y la primera voz (0 ms si está en caché, ~500 ms si no). El objetivo es **~350 ms**, y el camino es que, cuando la persona calla, todo esté ya decidido y sonando:
+
+1. **Todo especulativo.** Con cada parcial estable ya se hace Jev (hecho), se concilia y se planifica en seco, y se **sintetiza la respuesta prevista** antes de que acabe la frase.
+2. **Precarga de datos mientras habla.** En cuanto el parcial trae un DNI o un teléfono, se busca la ficha; en cuanto hay paciente y especialidad, se piden los huecos y se calcula la oferta. La oferta está grabada antes de que diga «sí».
+3. **Contestar al fin de voz, no al definitivo.** Si el parcial lleva estable, Jev dice «terminada» ≥ 0,9 y la respuesta está lista, se suelta a los ~200 ms de silencio sin esperar el definitivo. Si el definitivo llega distinto de verdad, el mecanismo de deshacer que ya existe corrige (será raro: se dispara solo con texto estable).
+4. **Sin LLM en el camino crítico.** DNI, NIE, teléfono, fechas y correos con analizadores deterministas (instantáneos); el nombre se casa con el directorio. Flash-Lite pasa a segundo plano, como segunda opinión.
+5. **Acuses que tapan lo lento.** Si algo no está listo al fin de voz (una pregunta al Sistema 2, una voz sin caché), sale al instante un acuse ya grabado y adecuado a la jugada («Claro.», «Un momento, lo miro.») y después el contenido. Es lo que hace una persona.
+
+### Cómo se comprueba
+
+Un arnés de texto combinatorio, porque el de voz con frases fijas y un llamante obediente no encontraba nada de esto:
+
+- **Casos generados de los datos** (paciente × especialidad × médico × sede × fecha × seguro × modo de identificarse) con la respuesta esperada calculada por un oráculo independiente del agente.
+- **Una matriz de comportamientos** que se sortea y combina en el llamante (un LLM): acepta y pregunta, acepta con condición, pregunta por la oferta, reformula al aceptar, saluda y espera, «¿sigue ahí?», datos a trozos o de golpe, se corrige, cambia de idea, mezcla idiomas, pregunta al final.
+- **Un canal de oído** opcional que estropea el texto como el reconocedor (nombres, «Sur» → «sir», cifras repetidas, minúsculas).
+- **Invariantes en cada turno**: siempre contesta, no repite la misma frase tres veces, no propone tras ejecutar, contesta lo que se le pregunta (lo juzga Jev), no cambia de idioma sin motivo.
+- **Fallos agrupados por (jugada de quien llama × estado × comportamiento)**, para ver en qué coinciden sin leer transcripciones.
+
+Cientos de llamadas en minutos, en texto; la voz queda para comprobar el oído y los tiempos.

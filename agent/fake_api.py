@@ -173,6 +173,52 @@ _appt("P00007", "PR09", "norte", "orthopaedic_review", datetime(2026, 10, 2, 12,
 _appt("P00001", "PR02", "centro", "review", datetime(2025, 3, 11, 9, 0, tzinfo=MAD))
 _appt("P00006", "PR01", "centro", "review", datetime(2025, 11, 4, 10, 15, tzinfo=MAD))
 
+# ---------------------------------------------------------------- población sintética para el arnés combinatorio
+# Con semilla propia y DESPUÉS de la agenda: no cambia ni un hueco ni una cita de lo anterior.
+_r = random.Random(2026)
+_GIVEN_F = ["Josefa", "Chloe", "Amelia", "Núria", "Carmen", "Lucía", "Irina", "Aisha", "Sofía", "Montserrat", "Emily", "Paula", "Rocío", "Ana"]
+_GIVEN_M = ["Ignacio", "Oliver", "Jordi", "Emilio", "Andrei", "Javier", "Pau", "Hugo", "Rafael", "Thomas", "Álvaro", "Youssef", "Marc", "Luis"]
+_SURN = ["Domínguez", "Navarro", "Hughes", "White", "Roberts", "Smith", "Vázquez", "Moreno", "Rubio", "Jiménez", "Molina", "Suárez",
+         "Ferrer", "Soler", "Castells", "Popescu", "Ionescu", "El Amrani", "Gil", "Romero", "Torres", "Ramos", "Blanco", "Sanz"]
+_INS = ["sanitas"] * 5 + ["adeslas"] * 2 + ["dkv"] * 2 + ["asisa"] * 2 + ["mapfre"] * 2 + ["caser", "cigna", "axa", "nueva_mutua", "privado"]
+_ADULTS = []
+for _i in range(16, 76):
+    pid = f"P{_i:05d}"
+    child = _r.random() < 0.18
+    sex = _r.choice("FM")
+    given = _r.choice(_GIVEN_F if sex == "F" else _GIVEN_M)
+    s1, s2 = _r.sample(_SURN, 2)
+    if child and _ADULTS:
+        par = _r.choice(_ADULTS)
+        s1 = PATIENTS[par]["first_surname"]
+        year = _r.randint(2013, 2023)
+    else:
+        par, year = None, _r.randint(1940, 2006)
+    dob = f"{year}-{_r.randint(1, 12):02d}-{_r.randint(1, 28):02d}"
+    ins = PATIENTS[par]["insurer"] if par else _r.choice(_INS)
+    refs = [x for x, pr in (("physiotherapy", 0.25), ("dermatology", 0.15)) if _r.random() < pr]
+    used = 3 if ins == "caser" and _r.random() < 0.5 else _r.randint(0, 2)
+    _p(pid, given, s1, s2, dob, f"+346{_r.randint(10_000_000, 99_999_999)}", sex, _r.random() < 0.72, ins, refs=refs,
+       note=(f"Child. Parent on file: {PATIENTS[par]['given_name']} {PATIENTS[par]['first_surname']} ({par})." if par else ""),
+       second=(_r.choice(["sanitas", "dkv"]) if _r.random() < 0.12 else None), used=used, nid=dni(_r.randint(10_000_000, 79_999_999)))
+    if not child:
+        _ADULTS.append(pid)
+    # un 30 % con una cita futura (hueco libre de un profesional que le corresponda)
+    if _r.random() < 0.30:
+        age = (date(2026, 9, 19) - date.fromisoformat(dob)).days // 30
+        specs = ["paediatrics"] if age < 168 else ["general_practice", "dermatology", "orthopaedics"]
+        prs = [p for p in PROVIDERS if p[2] in specs and not p[6]]
+        for _try in range(40):
+            pr = _r.choice(prs)
+            loc = _r.choice(list(pr[4]))
+            d = date(2026, 9, 22) + timedelta(days=_r.randint(0, 22))
+            cands = [t for t in _slots(pr[0], loc, d) if (pr[0], loc, t) not in BUSY]
+            if cands:
+                typ = {"general_practice": "review", "paediatrics": "paediatric_review", "dermatology": "dermatology_review",
+                       "orthopaedics": "orthopaedic_review"}[pr[2]]
+                _appt(pid, pr[0], loc, typ, _r.choice(cands))
+                break
+
 app = FastAPI(title="Prosper (falsa)")
 SUBMISSIONS: dict[str, list] = {}
 
