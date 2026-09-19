@@ -300,6 +300,13 @@ class Conv:
             "part": choice("Which part of the day does the caller want in `caller`? A greeting like 'good afternoon' is not a preference.",
                            {"first_thing": "first thing / earliest in the morning", "morning": "in the morning (before 2 pm)",
                             "afternoon": "in the afternoon (from 2 pm)", "any": "no preference stated"}),
+            "intent": choice("What does the caller want overall (latest wish)?", {"book": "Book a new appointment", "reschedule": "Move an existing one",
+                             "cancel": "Cancel one", "register": "Register as a new patient", "info": "Only questions", "unclear": "Not clear yet"}),
+            "specialty": choice("Which kind of doctor does the caller need, named or implied by the complaint (a GP / family doctor / check-up / "
+                                "prescription / blood results is general practice; a child's illness is paediatrics; sprains and joint injuries are "
+                                "orthopaedics; periods or smear test is gynaecology; skin is dermatology; physio)?",
+                                {x["id"]: x["name"] for x in (self.catalog or {}).get("specialties", [])} | {"none": "Not stated or unclear"}),
+            "names_doctor_or_site": noul("Does the caller ask for a specific doctor by name, a specific clinic site, or the nearest site to an address?"),
             "says_goodbye": noul("Does `caller` say goodbye, thank-you-and-bye, or that they need nothing else?"),
             "wants_register": noul("Does the caller say they are new to the clinic, not on file, or want to be registered as a new patient?"),
             "lang": choice("Which language is `caller` MAINLY in? Ignore isolated words from another language and names.", LANGS | {"other": "Other"}),
@@ -313,6 +320,7 @@ class Conv:
         if opts:
             state["options_on_the_table"] = opts
         qs = self.jev_questions()
+        self.warm(text)
         try:
             r = await JEV.ask(state, qs)
             return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"])
@@ -404,6 +412,10 @@ class Conv:
         out += pre[1]
         # 3. el planificador, con los juicios de Jev, la lectura determinista y lo ya identificado como señales
         sig = self.signals(text, p) + (f"\n[Kernel lookup, already verified] {' · '.join(pre[0])}" if pre[0] else "")
+        if not self._dry or True:
+            pf = await self.prefetch_offer(p)
+            if pf:
+                sig += "\n" + pf
         s.msgs.append(types.Content(role="user", parts=[types.Part(text=f"{sig}\nCaller: {text}")]))
         n_before = len(s.msgs) - 1
         self._p = p
@@ -464,6 +476,50 @@ class Conv:
                 if not self._dry:
                     remember_line_language(s.from_number, lg)
 
+    def warm(self, text: str):
+        """Mientras Jev juzga, se piden ya a la API las fichas de los datos exactos que ha dicho (quedan en su caché)."""
+        try:
+            nid = spoken_id(text)
+            n = normalize_national_id(nid)[0] if nid else None
+            dob, ph = leer.parse_dob(text), leer.parse_phone(text)
+        except Exception:  # noqa: BLE001
+            return
+        for q in ({"national_id": n} if n else None, {"date_of_birth": dob} if dob else None, {"phone": ph} if ph else None):
+            if q:
+                t = asyncio.ensure_future(API.directory(**q))
+                t.add_done_callback(lambda f: f.exception())
+
+    async def prefetch_offer(self, p: P) -> str:
+        """Con paciente identificado, intención de reservar y especialidad clara, el núcleo busca ya el primer hueco que
+        cumple lo dicho: el planificador solo tiene que leerlo (un paso en vez de dos o tres)."""
+        s = self.s
+        if any(s.offers.get(k, {}).get("status") == "open" for k in s.menu) or not s.patients:
+            return ""
+        it, ic = p.c("intent")
+        sp, sc = p.c("specialty")
+        if it != "book" or ic < 0.7 or not sp or sp == "none" or sc < 0.7 or p.n("names_doctor_or_site") >= 0.5:
+            return ""
+        pid = list(s.patients)[-1]
+        if len(s.patients) > 1:
+            return ""                      # varias personas en la llamada: que decida el planificador para quién
+        kw = {"patient_id": pid, "specialty": sp, "purpose": "book"}
+        day = self.resolve_day(p, p.text)
+        m = re.search(r"(\d{4}-\d{2}-\d{2})", day or "")
+        if m and "CLOSED" not in day:
+            kw["date_from"] = kw["date_to"] = m.group(1)
+        pp, pc = p.c("part")
+        if pp in ("morning", "first_thing", "afternoon") and pc >= 0.6:
+            kw["part_of_day"] = "afternoon" if pp == "afternoon" else "morning"
+        if not s.said_when:
+            kw.pop("date_from", None), kw.pop("date_to", None), kw.pop("part_of_day", None)
+        try:
+            res = await self.t_find_slots(**kw)
+        except Exception:  # noqa: BLE001
+            return ""
+        self._log("prefetch_offer", args=kw, result=_short(res, 300))
+        return (f"[Kernel already ran find_slots({json.dumps(kw)}) for you] {json.dumps(res, ensure_ascii=False)[:700]}\n"
+                "If that is what the caller asked for, just read the offer back (no need to call find_slots again).")
+
     async def prelookup(self, text: str) -> tuple[list[str], list[dict]]:
         s = self.s
         probes = []
@@ -479,12 +535,17 @@ class Conv:
             probes.append(("date_of_birth", {"date_of_birth": dob}))
         if ph and not (n and n[-9:].startswith(ph[:5])):
             probes.append(("phone", {"phone": ph}))
+        said = " ".join(h[8:] for h in s.history if h.startswith("Caller:"))
+        for m in getattr(self, "_line", []) or []:
+            # la línea es un dato exacto del directorio: con el nombre completo de esa ficha dicho por quien llama, basta
+            if m["patient_id"] not in s.patients and leer.name_score(said, f"{m['given_name']} {m['first_surname']} {m['second_surname']}") >= 0.8:
+                probes.append(("line", None))
+                break
         if not probes:
             return [], []
-        said = " ".join(h[8:] for h in s.history if h.startswith("Caller:"))
         notes, evs = [], []
         try:
-            res = await asyncio.gather(*[API.directory(**q) for _, q in probes])
+            res = await asyncio.gather(*[API.directory(**q) if q else _const(getattr(self, "_line", []) or []) for _, q in probes])
         except Exception:  # noqa: BLE001
             return [], []
         for (label, _), ms in zip(probes, res):
@@ -493,7 +554,7 @@ class Conv:
                 continue
             best, top, second = sc[0][1], sc[0][0], (sc[1][0] if len(sc) > 1 else 0.0)
             if top >= 0.6 and top - second >= 0.2:
-                r = await self.found(best, label, False)
+                r = await self.found(best, label, label == "line")
                 evs.append(self._log("prelookup", by=label, patient=best["patient_id"], score=round(top, 2)))
                 up = await self.t_list_appointments(best["patient_id"])
                 notes.append(f"{r['name']} (patient_id {r['patient_id']}, by {label}): age {r['age']}, insurer on file {r['insurer_on_file']}, "
@@ -670,6 +731,7 @@ HOW YOU SPEAK (a phone call: everything you write is spoken aloud)
 - When you call confirm_booking, confirm_cancellation, confirm_registration, decline or end_call, write what you say in the SAME
   response (e.g. "Done, you're booked for … Anything else?"); if the tool then reports an error you will be asked again.
 - Identify with the full name AND an identifier; ask for both together. Do not call identify_patient until you have both.
+- Speak to the caller as "you". When the patient is the caller, never call them "he", "she" or "her".
 - If the caller hesitates, is unsure, asks "what else do you have?" or wants other options: call find_slots with the same arguments
   and more_options=true (count=2 or 3 if they want to choose), and offer them. Everything you offered stays available: if they then
   pick one ("the first one", "the Tuesday one"), call confirm_booking with that option's offer_id. Never get stuck repeating one offer.
@@ -1439,6 +1501,10 @@ def _hm(m, h24: bool = False) -> str | None:
     elif h < 8:
         h += 12
     return f"{h:02d}:{mi:02d}" if 0 <= h < 24 and 0 <= mi < 60 else None
+
+
+async def _const(x):
+    return x
 
 
 def _iv(d: dict) -> str:
