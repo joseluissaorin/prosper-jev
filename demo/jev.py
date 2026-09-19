@@ -10,7 +10,9 @@ import httpx
 
 URL = "https://api.typesafe.ai/v1/systemone"
 MODEL = os.environ.get("JEV_MODEL", "jev-latest")
-HEDGE_AFTER = float(os.environ.get("JEV_HEDGE_AFTER", "0.45"))   # s: si no ha contestado, se lanza un duplicado
+# s: si no ha contestado, se lanza un duplicado. Medido desde España: el viaje a Oregón son ~200 ms de los ~300
+# que tarda una petición, así que a los 0,25 s o ya viene de camino o se ha perdido; esperar 0,45 s no informa.
+HEDGE_AFTER = float(os.environ.get("JEV_HEDGE_AFTER", "0.25"))
 TIMEOUT = float(os.environ.get("JEV_TIMEOUT", "2.5"))
 
 

@@ -374,6 +374,105 @@ Hoy la mediana es ~1,3 s desde que quien llama deja de hablar. El reparto: el de
 4. **Sin LLM en el camino crítico.** DNI, NIE, teléfono, fechas y correos con analizadores deterministas (instantáneos); el nombre se casa con el directorio. Flash-Lite pasa a segundo plano, como segunda opinión.
 5. **Acuses que tapan lo lento.** Si algo no está listo al fin de voz (una pregunta al Sistema 2, una voz sin caché), sale al instante un acuse ya grabado y adecuado a la jugada («Claro.», «Un momento, lo miro.») y después el contenido. Es lo que hace una persona.
 
+## El híbrido: el Sistema 2 decide, el código habla
+
+Hubo dos cerebros. **v1** (`agent/brain.py`) es una máquina de estados con Jev de sensor: contesta en **3 ms** de política, pero se le acaban los estados ante la pragmática real. **v2** (`agent/conv.py`) es un planificador (Flash-Lite) con herramientas sobre un núcleo determinista: encadena cualquier cosa, pero costaba **1,5 s por turno**. En la réplica de los casos publicados de Prosper, v1 hacía 60/77 y v2 72/77; en el arnés combinatorio pasaba justo al revés.
+
+Lo que se ha construido no es elegir uno, sino repartir el turno: **el Sistema 2 decide QUÉ hacer; el código dice CÓMO queda; y casi nada de eso ocurre cuando quien llama se calla, porque ya estaba hecho.**
+
+### Lo que se midió antes de tocar nada
+
+Todo desde España el 19-09-2026, contra `gemini-3.5-flash-lite`:
+
+| Variante | Mediana |
+|---|---|
+| Prompt de entonces (7 880 tokens) + herramientas | 644 ms |
+| Lo mismo **en streaming** | primer token a 619 ms |
+| Prompt mínimo (50 tokens), sin herramientas | **460 ms** |
+| `gemini-flash-lite-latest` / `3.1-flash-lite` | 592 / 667 ms |
+| `thinking_budget=0` en 3.5-flash-lite | no admitido (400) |
+
+Red: Madrid → borde de Google, `connect` 27 ms. Madrid → `api.typesafe.ai` (Oregón), `connect` 200 ms.
+
+De ahí salen tres cosas que mandan sobre el diseño: **cada ida y vuelta a Flash-Lite cuesta ~500 ms pase lo que pase** (no es la red, es el servidor); **el streaming no sirve** con 60 tokens de salida; y **dos tercios de los 300 ms de Jev son el Atlántico**. Conclusión: por debajo de 500 ms no puede haber ninguna llamada a Gemini en el camino crítico.
+
+v2 hacía **2,04 llamadas de ~630 ms por turno**: una para pedir la herramienta y otra para redactar el resultado.
+
+### Los cuatro cambios
+
+**1. El prompt es un vocabulario, no un vademécum.** Los HECHOS de la clínica (horarios, qué día pasa consulta cada médico, edades, volantes, coberturas, bajas) salieron del prompt: quedan los nombres y los identificadores, para poder rellenar los argumentos de las herramientas. De 7 880 tokens a 4 400. Y no era solo velocidad: con los hechos delante, el planificador contestaba de memoria («pediatría es hasta los catorce», o peor, «hasta los dieciocho»), no pasaba por `find_slots`, y el motivo que se declaraba al marcador se degradaba a `out_of_scope` en vez de `not_eligible_age`. Ahora la única vía es la herramienta, y el motivo sale de la API. Un guardia de código lo remata: **negarse o colgar sin haber mirado la agenda ni una vez devuelve un error al planificador** que le manda identificar y buscar antes de refusar.
+
+**2. La frase la escribe el código.** Cuando una herramienta ya trae todo lo que hay que decir —una oferta, una lectura para confirmar, un dato que falta, una confirmación hecha—, la respuesta se compone con plantillas en las tres lenguas (`SPEAK`, `ASK`) y el turno se cierra con **una sola** ronda de planificador. El compositor se aparta si quien llama ha **preguntado** algo (una plantilla no contesta una pregunta: eso lo juzga Jev con `asks_question`, en la misma petición) o si la frase repetiría palabra por palabra algo ya dicho. Resultado medido: **2,04 → 1,27 llamadas a Flash-Lite por turno**.
+
+**3. El carril rápido: los turnos que no necesitan Sistema 2.** El «sí» claro a lo que se acaba de leer —que además es el turno que escribe en la agenda— y la despedida se resuelven en el núcleo, en ~0 ms. La puerta es exactamente la misma que usa el planificador (`check_gate`): no se relaja nada; si no pasa, habla el Sistema 2. Son el 16 % de los turnos y los dos que peor aguantan un segundo de espera.
+
+**4. La especulación, que por fin acierta.** Antes solo se reutilizaba el trabajo hecho sobre el parcial si el definitivo era **idéntico**, y en voz casi nunca lo es. Ahora:
+- vale si uno contiene al otro y lo que sobra es cortesía, o si Jev —al que hay que preguntar de todas formas— dice que el definitivo no pide nada nuevo (`unchanged`);
+- vale **también cuando el turno escribe**: en seco la escritura solo se anotaba, y al adoptar la sombra se ejecuta de verdad (antes, el turno más importante era justo el que nunca podía aprovecharla);
+- si la sombra colgó la llamada, se declara al marcador (en seco `finalize()` no declaraba, y la llamada se cerraba muda);
+- y en el servidor de voz la especulación ya **no se reinicia con cada parcial**: si el parcial nuevo pide lo mismo que el que se está planificando, se deja correr. Sin eso, la planificación iba siempre un parcial por detrás y llegaba tarde a su propio turno.
+
+### Los tres carriles
+
+Al cerrarse el turno hay **siempre** algo que decir, en este orden:
+
+1. **La especulación del Sistema 2** (0 ms): lleva corriendo desde el último parcial estable y su voz ya está sintetizada.
+2. **El núcleo** (~1 ms): el «sí», la despedida, la plantilla del compositor.
+3. **El acuse** (0 ms): si a los 350 ms de callarse no ha salido nada, suena un «Un momento, lo miro» ya grabado y la respuesta entra detrás sin cortarlo. Es lo que hace una persona, y deja la latencia percibida plana aunque el turno sea de los lentos.
+
+Y dos reglas de reparto que son las que dan la precisión:
+
+- **Los hechos y los permisos son del núcleo.** Fichas, huecos, reglas, edades, distancias, la puerta antes de escribir y el motivo que se declara. El planificador no fija ninguno: si nombra una fecha de nacimiento que nadie dijo (la calculaba de «tengo veinticinco años»), un DNI que en realidad es el teléfono, o una regla que ninguna herramienta ha confirmado, el código lo tira y se lo dice.
+- **La redacción y el encadenado son del planificador.** Y si el núcleo tiene una jugada inequívoca, manda el núcleo.
+
+### Lo que dan los números
+
+Arnés combinatorio, clínica simulada, el mismo día. Primero el antes y el después con la misma semilla (202, 40 casos):
+
+| | v1 | v2 antes | **v2 ahora** |
+|---|---|---|---|
+| Acierto | 33/40 | 28/40 | **37/40** |
+| Mediana por turno | 357 ms | 1 516 ms | **430 ms** |
+| p90 | 838 ms | 2 196 ms | 1 366 ms |
+| Llamadas a Flash-Lite por turno | 0 | 2,04 | **1,27** |
+| Turnos que aprovechan la especulación | — | — | **71 %** |
+
+Y, porque una sola semilla con un llamante que improvisa no dice gran cosa, cuatro semillas (164 casos en total):
+
+| Semilla (casos) | v1 | v2 |
+|---|---|---|
+| 202 (40) | 37/40 | 37/40 |
+| 303 (60) | 56/60 | 55/60 |
+| 505 (24) | 21/24 | 21/24 |
+| 707 (40) | 38/40 | 33–35/40 |
+| **Total** | **152/164 (93 %)** | **146–148/164 (89–90 %)** |
+
+v2 entra empatado donde antes perdía por catorce puntos, y con el planificador que en la réplica de los casos reales de Prosper hacía 72/77 contra los 60/77 de v1. La mediana por turno se mueve entre 430 y 730 ms según lo que pidan los casos de cada semilla; el coste en serie, sin especulación (`SPEC=0`), baja de **1 516 a 948 ms**.
+
+(El arnés simula ahora la especulación como en la llamada de verdad: mientras quien llama dice sus dos últimas palabras, el agente ya ha juzgado el parcial y ha planificado sobre él. Sin eso medía el coste en serie, que no es lo que oye nadie. Lo que queda de los fallos de v2 son en su mayoría casos en los que el llamante sintético dice un DNI distinto del que le tocaba: el agente lo lee bien, lo repite y se lo confirman.)
+
+### Y en voz
+
+En la llamada real el reparto es otro, y hubo que medirlo con la traza del propio agente (`fin de voz → turno cerrado`, `→ definitivo del oído`, `política`, `→ primera palabra`):
+
+- **El cerebro ya casi no cuenta.** La especulación se reutiliza en todos los turnos y la política baja a 0–5 ms en los que van por el carril rápido.
+- **Lo que queda es el fin de turno**, y ahí había dos cosas mal:
+  - *El silencio se contaba dos veces.* El detector espera 250 ms antes de declarar el final, y encima se le pedían otros 250–300 de silencio. Si Jev da la frase por terminada con holgura (≥ 0,92) y el texto no se mueve, se cierra ya: el fin de turno es por sentido, que es la tesis del proyecto.
+  - *El bucle de Jev y el del planificador eran el mismo.* Mientras el Sistema 2 trabajaba (0,6–1,3 s) no se juzgaba ni un parcial más, así que el «¿ha terminado?» del último llegaba tardísimo y el turno no podía cerrarse por sentido. Ahora la planificación va en su propia tarea y los juicios de los parciales no hacen cola de uno en uno.
+- **Y se contesta al fin de voz, no al definitivo**, cuando no queda nada que decidir ni que sintetizar. Se ahorran los ~250 ms del definitivo del transcriptor. Nunca en un turno que escriba en la agenda: esperar 250 ms sale mucho más barato que reservar lo que no era.
+- **Dónde está el suelo de verdad.** Tras todo esto, lo que queda no es nuestro: el último parcial del transcriptor llega ~400 ms después de que la persona calle, y juzgarlo cuesta un Jev (~300 ms). Son ~700 ms desde que el detector declara el silencio, y ~900 desde que la persona deja de hablar, antes de que el agente pueda decir una sola palabra con criterio. El turno que va bien se cierra a los 350 ms y el agente habla a los ~700; el que va mal se cierra a los 730. **Los 500 ms de mediana que se consiguen son los del turno del agente** (percepción + decisión), no los del micrófono al altavoz: en voz la mediana está en ~0,9–1,1 s y bajar de ahí pide un transcriptor con parciales más rápidos, no más optimización nuestra.
+
+### Lo que salió al mirar con la traza puesta
+
+Medir el camino de voz de verdad, llamada a llamada, enseñó que casi ningún fallo era de latencia. Eran del reparto entre el planificador y el núcleo, y todos se arreglan del mismo modo: **lo que dice quien llama lo fija el código, no el modelo.**
+
+- **Reservaba al colgar una cita que nadie había aceptado.** `finalize()` miraba la confianza de la elección de Jev sin mirar *qué* había elegido: «ninguna» con 0,84 de confianza contaba como elegir. Ahora hace falta que lo elegido sea una oferta real.
+- **Dar un dato contaba como decir que sí.** Con una oferta sobre la mesa, Jev daba `accepts` 0,83 a «Mario García López, mi DNI es…» porque no objetaba nada, y la puerta lo dejaba pasar. Ahora, si el acto es claramente «da un dato», no es un sí.
+- **«Arenal Sur» se transcribe «Arenal, sir»,** y a v2 le faltaban los sensores que v1 sí tenía: sede, médico y aseguradora emparejados **por sonido** contra los que existen de verdad. Se añadieron (gratis: la misma petición a Jev), la sede se recuerda durante la llamada y el núcleo la impone sobre la que el planificador lee del texto roto.
+- **«Con la doctora Ortiz» no es el nombre del paciente.** El planificador la buscaba como paciente y no encontraba a nadie; ahora el núcleo lo detecta y pide el nombre de quien va a la consulta.
+- **Ni «caller_line» ni «Caller» son nombres.** Un centinela en el prompt acabó colándose donde iba un nombre de persona y mataba la llamada entera. Fuera el centinela: el núcleo prueba siempre la ficha de la línea, y rechaza los nombres de relleno.
+- **La edad no es una fecha de nacimiento, y un teléfono no es un DNI.** El planificador calculaba la fecha de «tengo veinticinco años» y pasaba los nueve dígitos del teléfono como DNI. Los dos datos se tiran si quien llama no los ha dicho.
+
 ### Cómo se comprueba
 
 Un arnés de texto combinatorio, porque el de voz con frases fijas y un llamante obediente no encontraba nada de esto:

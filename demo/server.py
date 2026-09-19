@@ -118,6 +118,23 @@ def _fold(s: str) -> str:
     return clinic.fold(s)
 
 
+# lo que puede cambiar entre dos parciales, o entre un parcial y su definitivo, sin cambiar lo que hay que hacer
+FILLER = {"please", "thanks", "thank", "you", "um", "uh", "er", "erm", "hmm", "mm", "mhm", "ah", "oh", "well", "so", "right",
+          "por", "favor", "gracias", "muchas", "eh", "pues", "bueno", "vale", "ok", "okay", "si", "us", "plau", "gracies",
+          "moltes", "sisplau", "perdone", "perdona", "perdoni", "disculpe"}
+
+
+def same_words(a: str, b: str) -> bool:
+    """¿Piden lo mismo? Uno contiene al otro y lo que sobra es cortesía. Sin esto, el juicio y el plan hechos sobre
+    el último parcial se tiraban porque el definitivo traía una coma o un «please»."""
+    wa = "".join(ch if ch.isalnum() else " " for ch in _fold(a)).split()
+    wb = "".join(ch if ch.isalnum() else " " for ch in _fold(b)).split()
+    if wa == wb:
+        return True
+    lo, hi = (wa, wb) if len(wa) <= len(wb) else (wb, wa)
+    return bool(lo) and hi[:len(lo)] == lo and all(w in FILLER for w in hi[len(lo):])
+
+
 def _k(t: str) -> str:
     """Clave para reutilizar el juicio de Jev: sin mayúsculas, tildes ni puntuación."""
     return " ".join("".join(c if c.isalnum() else " " for c in clinic.fold(t)).split())
@@ -180,12 +197,19 @@ class VoiceCall:
         self.segments: list[str] = []
         self.interim = ""
         self.spec: dict[str, object] = {}
-        self.spec_busy = False
+        self.spec_inflight = 0           # juicios de Jev sobre parciales en vuelo
         self.spec_next: str | None = None
+        self.ready: dict[str, tuple] = {}   # respuesta ya planificada Y sintetizada sobre un parcial
+        self.ready_texts: dict[str, tuple] = {}   # lo mismo, por texto, para buscar por equivalencia
+        self.spec_texts: dict[str, object] = {}   # los juicios de Jev por texto, para buscar por equivalencia
+        self.planning: tuple | None = None  # (texto, instante) de la planificación especulativa en curso
+        self.plan_task: asyncio.Task | None = None  # esa planificación, en su propia tarea (no bloquea a Jev)
+        self.ack_task: asyncio.Task | None = None  # acuse sonando; la respuesta lo espera en vez de cortarlo
         self.speak_task: asyncio.Task | None = None
         self.speaking_until = 0.0
         self.agent_text = ""
         self.t_speech_end: float | None = None
+        self.speech_end_t = 0.0          # igual, pero no se borra al hablar: para medir los tramos del turno
         self.respond_timer: asyncio.TimerHandle | None = None
         self.first_turn = True
         self.first_act: int | None = None
@@ -315,7 +339,7 @@ class VoiceCall:
                     started = await self.open_turn()
                 await self.emit("vad", state="speech", agent_speaking=self.agent_speaking)
             elif kind == "end":
-                self.t_speech_end = self.vad_end_t = time.perf_counter()
+                self.t_speech_end = self.vad_end_t = self.speech_end_t = time.perf_counter()
                 self.noisy = False                       # hay silencios de verdad: no es ruido continuo
                 await self.emit("vad", state="silence")
         # Con ruido de voz continuo (una tele) el detector nunca calla: el turno se reabre solo y es el texto
@@ -359,11 +383,16 @@ class VoiceCall:
             silence = 0.0 if speaking else now - self.vad_end_t
             stable = now - self.interim_t if self.interim else 0.0
             full = " ".join(self.segments + [self.interim]).strip()
-            p = self.spec.get(_k(full)) if full else None
+            p = self.spec_get(full) if full else None
             fin = p.finished if p is not None else None
             why = None
             if not speaking:
+                # El fin de turno es por SENTIDO, no por reloj. Además, este silencio se contaba dos veces: el
+                # detector ya ha esperado sus 250 ms antes de declarar el final, y encima se le pedían otros
+                # 250-300. Si Jev ve la frase terminada con holgura y el texto no se mueve, se cierra ya: son
+                # ~500 ms de los ~1 100 que quedaban. Si el definitivo llegara distinto, deshacer ya lo recoge.
                 if (silence >= 1.3
+                        or (silence >= 0.05 and stable >= 0.15 and fin is not None and fin >= 0.92)
                         or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
                         or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
                     why = f"silencio {silence:.2f} s"
@@ -382,7 +411,30 @@ class VoiceCall:
                 await self.ears.activity_end()
                 self.spawn(self.watchdog(act))
                 await self.emit("log", msg=f"turno cerrado: {why}, texto estable {stable:.2f} s, terminada {fin}")
+                if self.speech_end_t:
+                    await self.emit("latency", stage="fin de voz → turno cerrado", ms=round((now - self.speech_end_t) * 1000))
+                self.spawn(self.answer_early(full, act, stable))
                 return
+
+    def spec_get(self, full: str):
+        """El juicio de Jev de este texto o del parcial equivalente más reciente."""
+        p = self.spec.get(_k(full))
+        if p is not None:
+            return p
+        for t, q in reversed(list(self.spec_texts.items())):
+            if same_words(t, full):
+                return q
+        return None
+
+    def ready_get(self, full: str):
+        """La respuesta ya planificada y sintetizada de este texto o del parcial equivalente más reciente."""
+        r = self.ready.get(_k(full))
+        if r is not None:
+            return r
+        for t, v in reversed(list(self.ready_texts.items())):
+            if same_words(t, full):
+                return v
+        return None
 
     def caller_talking(self) -> bool:
         """¿Está hablando quien llama? Con ruido de fondo el detector no sirve: cuenta el texto nuevo."""
@@ -446,6 +498,63 @@ class VoiceCall:
         await self.emit("final", text=full, stt_ms=lag_ms, session=tag)
         self.spawn(self.endpoint(full, typed=False))
 
+    # ---- contestar al fin de voz, no al definitivo
+
+    async def answer_early(self, full: str, act: int, stable: float):
+        """Contestar en cuanto el detector declara el silencio, sin esperar al definitivo del transcriptor.
+
+        El definitivo tarda ~250 ms más, y esos 250 ms son la mitad del presupuesto de un turno rápido. Solo se
+        hace cuando no queda nada que decidir ni que sintetizar: Jev da la frase por terminada con holgura, el
+        texto lleva quieto un rato, la respuesta ya está planificada sobre ese mismo parcial y su voz ya está
+        hecha. Y nunca cuando ese turno escribiría en la agenda: eso espera al definitivo, que sale barato al
+        lado de reservar lo que no era.
+
+        Si el definitivo trae otra cosa, no hay nada nuevo que inventar: `on_final` ya trata lo que llega después
+        de una respuesta (lo ignora si es lo mismo, lo une si lo completa, y deshace y rehace si difiere)."""
+        if not self.call or self.finalized or not self.tts or self.agent_speaking:
+            return
+        r = self.ready_get(full)
+        if not r:
+            return await self.hold_on(full)
+        p, outs, renders, writes = r
+        if writes or p.finished < 0.9 or stable < 0.15 or not outs:
+            return await self.hold_on(full)
+        if not all(getattr(x, "cached", False) or getattr(x, "done", False) or getattr(x, "chunks", None) for x in renders):
+            return await self.hold_on(full)
+        if (self.ears and act in self.ears.texts) or self.answered_act >= act or self.turn_open:
+            return                                        # el definitivo ya llegó: lo contesta el camino normal
+        self.final_act = max(self.final_act, act)
+        self.segments = [full]
+        await self.emit("log", msg=f"contestado al fin de voz, sin esperar al definitivo (terminada {p.finished:.2f}, estable {stable:.2f} s)")
+        self.call._log("early_answer", text=full, finished=round(p.finished, 2))
+        await self.respond(full, p)
+
+    HOLD_AFTER_S = 0.25     # si a los 250 ms de cerrarse el turno no ha salido nada, ya no va a ser rápido
+
+    async def hold_on(self, full: str):
+        """El tercer carril. Al cerrarse el turno no hay respuesta lista: o el Sistema 2 sigue pensando, o ni
+        siquiera ha empezado. En vez de dejar un silencio de uno o dos segundos, se espera lo justo para no pisar
+        una respuesta rápida y, si sigue sin haber nada, suena un acuse ya grabado («Un momento, lo miro»). Es lo
+        que hace una persona, y deja la latencia percibida plana aunque el turno sea de los lentos."""
+        if not self.call or not self.tts:
+            return
+        p = self.spec_get(full)
+        if p is None or p.finished < 0.8:
+            return                                        # ni siquiera está claro que haya terminado de hablar
+        t_close = time.perf_counter()
+        await asyncio.sleep(self.HOLD_AFTER_S)
+        if not self.call or self.finalized or self.agent_speaking or self.last_response_t > time.time() - self.HOLD_AFTER_S:
+            return                                        # ya ha contestado: no hace falta acuse
+        if self.turn_open or self.caller_talking() or self.ready_get(full) is not None:
+            return
+        say = getattr(self.call, "hold_phrase", None)
+        text = say() if say else nlg.say("ack", getattr(self.call.s, "lang", None) or "en")
+        if not text or _fold(text) == _fold(self.agent_text or ""):
+            return
+        self.call._log("hold_ack", text=text, waited_ms=round((time.perf_counter() - t_close) * 1000))
+        await self.emit("log", msg="nada listo al callarse: acuse inmediato para que no haya silencio")
+        self.ack_task = self.spawn(self.speak_outs([{"kind": "say", "text": text, "act": "hold"}]))
+
     async def watchdog(self, act: int):
         await asyncio.sleep(self.WATCHDOG_S)
         if not self.ears or act in self.ears.texts or self.turn_open or not self.interim or act != self.ears.act:
@@ -462,34 +571,62 @@ class VoiceCall:
 
     # ------------------------------------------------------------ Sistema 1 especulativo
 
+    SPEC_PAR = 3        # juicios de Jev sobre parciales a la vez
+
     async def speculate(self, full: str):
-        """Jev sobre el parcial; si la frase parece terminada, prepara ya la voz de la respuesta probable."""
-        if self.spec_busy:
-            self.spec_next = full
+        """Jev sobre cada parcial. Nada más, y sin hacer cola de uno en uno.
+
+        Dos cosas que costaban cientos de milisegundos al cerrar el turno:
+        - La planificación del Sistema 2 estaba en este mismo bucle, así que mientras el planificador trabajaba
+          (0,6–1,3 s) no se juzgaba ni un parcial más. Ahora va en su propia tarea (`plan_ahead`).
+        - Y los juicios iban de uno en uno: si Jev estaba ocupado con el parcial anterior, el último —el que
+          decide si la frase ha terminado— esperaba su turno y llegaba 300 ms tarde. Ahora caben tres a la vez.
+          Una petición a Jev cuesta una fracción ínfima de céntimo; un turno que se cierra tarde se oye."""
+        if self.call is None or _k(full) in self.spec:
             return
-        self.spec_busy = True
+        if self.spec_inflight >= self.SPEC_PAR:
+            self.spec_next = full                       # se recoge cuando alguno termine
+            return
+        self.spec_inflight += 1
         try:
-            while full:
-                if _k(full) not in self.spec and self.call:
-                    try:
-                        p = await self.perceive(full, spec=True)
-                    except JevError:
-                        full, self.spec_next = self.spec_next, None
-                        continue
-                    self.spec[_k(full)] = p
-                    await self.emit("perception", phase="parcial", text=full, ms=p.ms, hedged=p.hedged, j=_compact(p))
-                    await self.maybe_barge(full, p)
-                    if p.finished >= 0.85 and self.tts and not self.agent_speaking:
-                        try:
-                            outs = self.merge_says(await self.call.handle(full, p, dry=True))
-                            for o in outs:
-                                if o["kind"] == "say":
-                                    self.render(o["text"])
-                        except Exception as e:  # noqa: BLE001
-                            log.info("preparación especulativa falló: %s", e)
-                full, self.spec_next = self.spec_next, None
+            p = await self.perceive(full, spec=True)
+        except JevError:
+            return
         finally:
-            self.spec_busy = False
+            self.spec_inflight -= 1
+            nxt, self.spec_next = self.spec_next, None
+            if nxt and nxt != full:
+                self.spawn(self.speculate(nxt))
+        self.spec[_k(full)] = p
+        self.spec_texts[full] = p
+        await self.emit("perception", phase="parcial", text=full, ms=p.ms, hedged=p.hedged, j=_compact(p))
+        await self.maybe_barge(full, p)
+        # planificar solo si no hay ya un plan (hecho o en marcha) para un parcial que pide lo mismo: si no, cada
+        # parcial reinicia el trabajo y la especulación va siempre un parcial por detrás
+        done_same = self.ready_get(full) is not None
+        doing_same = self.planning is not None and same_words(self.planning[0], full)
+        if p.finished >= 0.85 and self.tts and not self.agent_speaking and not done_same and not doing_same:
+            if self.plan_task and not self.plan_task.done():
+                self.plan_task.cancel()                 # el parcial anterior pedía otra cosa: ese plan ya no vale
+            self.planning = (full, time.perf_counter())
+            self.plan_task = self.spawn(self.plan_ahead(full, p))
+
+    async def plan_ahead(self, full: str, p):
+        """La respuesta probable, decidida y sintetizada antes de que quien llama termine de hablar."""
+        try:
+            outs = self.merge_says(await self.call.handle(full, p, dry=True))
+            rs = [self.render(o["text"]) for o in outs if o["kind"] == "say"]
+            # escribiría en la agenda: ese turno no se contesta antes del definitivo
+            writes = any(o.get("kind") == "event" and o["event"].get("kind") == "would_write" for o in outs) \
+                or bool(getattr(self.call, "spec_writes", lambda _t: False)(full))
+            self.ready[_k(full)] = self.ready_texts[full] = (p, outs, rs, writes)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.info("preparación especulativa falló: %s", e)
+        finally:
+            if self.planning and self.planning[0] == full:
+                self.planning = None
 
     async def probe_check(self, text: str):
         """Mientras habla, Jev mira si la sesión con pista gallega oye gallego (para no esperar después)."""
@@ -547,7 +684,9 @@ class VoiceCall:
     async def endpoint(self, full: str, typed: bool):
         if not self.call or self.finalized:
             return
-        p = self.spec.get(_k(full))
+        if not typed and self.speech_end_t:
+            await self.emit("latency", stage="fin de voz → definitivo del oído", ms=round((time.perf_counter() - self.speech_end_t) * 1000))
+        p = self.spec_get(full)
         if p is None:
             try:
                 p = await self.perceive(full)
@@ -558,7 +697,7 @@ class VoiceCall:
                 self.call._log("jev_unavailable", text=full)
                 self.speak_task = self.spawn(self.speak_outs([{"kind": "say", "text": nlg.say("ask_repeat", self.call.s.lang), "act": "ask_repeat"}]))
                 return
-            self.spec[_k(full)] = p
+            self.spec[_k(full)] = self.spec_texts[full] = p
             await self.emit("perception", phase="definitivo", text=full, ms=p.ms, hedged=p.hedged, j=_compact(p))
         else:
             await self.emit("log", msg="se reutiliza el juicio del parcial (0 ms)")
@@ -636,6 +775,9 @@ class VoiceCall:
                 p, full = await self.decide_language(p, full)
             self.segments = []
             self.respond_timer = None
+            self.ready.clear()
+            self.ready_texts.clear()
+            self.spec_texts.clear()
             # audio de lo que se contesta (las intervenciones desde la última respuesta), para una segunda opinión
             self.call.audio = b"".join(b"".join(self.act_audio.get(a, [])) for a in range(self.answered_act + 1, self.final_act + 1))
             self.answered_text = full
@@ -645,6 +787,8 @@ class VoiceCall:
             before = copy.deepcopy(self.call.s)
             try:
                 outs = await self.call.handle(full, p)
+            except asyncio.CancelledError:
+                raise                        # una interrupción de verdad sí corta el turno
             except Exception as e:  # noqa: BLE001
                 # un fallo nuestro nunca deja la línea muda: se restaura el estado y se pide que lo repita
                 log.exception("la política falló: %s", e)
@@ -725,6 +869,16 @@ class VoiceCall:
         return merged
 
     async def speak_outs(self, outs: list[dict]):
+        # un acuse en marcha («Un momento, lo miro») no se corta: la respuesta espera a que acabe
+        ack = self.ack_task
+        if ack is not None and ack is not asyncio.current_task() and not ack.done():
+            try:
+                await asyncio.shield(ack)
+            except asyncio.CancelledError:
+                if not ack.cancelled():
+                    raise                     # nos cancelan a nosotros (interrupción): se propaga
+            except Exception:  # noqa: BLE001
+                pass
         outs = self.merge_says(outs)
         try:
             for o in outs:

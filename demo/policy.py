@@ -126,7 +126,11 @@ class Call:
             shadow = Call()
             shadow.s = copy.deepcopy(self.s)
             shadow._dry = True
-            return await shadow.handle(text, p)
+            outs = await shadow.handle(text, p)
+            # el servidor de voz contesta al fin de voz solo si el turno NO escribe: aquí se le avisa de que sí
+            if shadow.s.outcome != self.s.outcome or len(shadow.s.actions) != len(self.s.actions):
+                outs = outs + [shadow._log("would_write", outcome=shadow.s.outcome)]
+            return outs
         s = self.s
         s.history.append(f"Caller: {text}")
         out: list[dict] = []
