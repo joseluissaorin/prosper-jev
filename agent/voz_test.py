@@ -115,14 +115,21 @@ class Llamada:
         # silencio real antes y después, como en una línea de teléfono: sin él el detector se queda «oyendo» ruido
         audio = b"\xff" * 1600 + audio + b"\xff" * 4000
         self.listening, self.first_in = False, 0.0
+        corte = 1600 + fin_muestra          # dónde acaba la voz de verdad dentro de lo que vamos a mandar
+        fin = None
         t0 = time.perf_counter()
         for i in range(0, len(audio), 160):
+            if fin is None and i >= corte:
+                # a partir de aquí ya solo mandamos silencio: el agente puede contestar y hay que contarlo
+                fin = time.perf_counter()
+                self.listening = True
             frame = audio[i:i + 160]
             await self.ws.send(json.dumps({"event": "media", "streamSid": self.call_id,
                                            "media": {"payload": base64.b64encode(frame).decode()}}))
             t0 += 0.02
             await asyncio.sleep(max(0.0, t0 - time.perf_counter()))
-        fin = time.perf_counter() - 0.5 - cola   # el fin de voz real: quitando el silencio de cola nuestro y el del audio
+        if fin is None:
+            fin = time.perf_counter()
         self.listening = True
         # esperar a que el agente empiece y termine de hablar (700 ms sin tramas)
         while time.perf_counter() - fin < 25:
