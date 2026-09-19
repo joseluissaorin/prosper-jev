@@ -273,7 +273,9 @@ class Conv:
 
     def menu_options(self) -> dict:
         s = self.s
-        return {k: self.readback_of(k) for k in s.menu if s.offers.get(k, {}).get("status") == "open"}
+        ords = ["1st", "2nd", "3rd", "4th", "5th", "6th"]
+        return {k: f"{ords[i]} option offered: {self.readback_of(k)}" + (" (the one just read back)" if (s.presented or {}).get("refs") == [k] else "")
+                for i, k in enumerate(s.menu) if s.offers.get(k, {}).get("status") == "open"}
 
     def jev_questions(self) -> dict:
         q = {}
@@ -435,6 +437,7 @@ class Conv:
                 r"\b(done|booked|you'?re (all )?set|moved|cancel+ed|registered|hecho|listo|reservad|queda|anulad|cambiad|fet)\b", fold(x))]
             said = " ".join(rest) or {"es": "¿Algo más?", "ca": "Alguna cosa més?"}.get(self.lang3(), "Anything else?")
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
+        self.mark_read(said)
         res = out + [{"kind": "say", "text": said, "act": "planner"}]
         if ended:
             s.ended = True
@@ -656,6 +659,7 @@ HOW YOU SPEAK (a phone call: everything you write is spoken aloud)
 - Say dates and times naturally ("Monday the 21st of September at 9:15 am"). Read offers back using the readback the tool gives you.
 - Say the full date, doctor and site only once per offer; afterwards refer to it briefly ("the 9:15 with Dr. Sáez"). Keep confirmations short.
 - If the caller already said exactly which appointment(s) to cancel, call prepare_cancellation and confirm_cancellation in the same turn.
+- Use prepare_cancellation ONLY with the appointment(s) the caller wants cancelled, never to list them (list_appointments lists).
 - Answer any question the caller asks before moving on. If the caller asks what you have done, say exactly what the tools did.
 - Never repeat the greeting. Do not ask "anything else?" twice in a row; if they have nothing else, say goodbye and call end_call.
 - When you call confirm_booking, confirm_cancellation, confirm_registration, decline or end_call, write what you say in the SAME
@@ -963,9 +967,8 @@ CLINIC FACTS
             o["status"] = "open"
             if not (o.get("turn") == s.turn - 1 and (s.presented or {}).get("turn") == s.turn - 1):
                 o["turn"] = s.turn                     # se lee en esta intervención (si ya se leyó en la anterior, sigue valiendo)
-            if oid in s.menu:
-                s.menu.remove(oid)
-            s.menu.append(oid)
+            if oid not in s.menu:
+                s.menu.append(oid)                     # el orden de la mesa es el orden en que se ofreció
             dt = parse_slot(x["start_time"])
             opts.append({"offer_id": oid, "readback": self.readback_of(oid), "start": dt.strftime("%Y-%m-%dT%H:%M"),
                          **({"billed_to": f"{policy} (not the plan on file)"} if policy != plans[0] else {})})
@@ -1013,7 +1016,22 @@ CLINIC FACTS
                 return {"error": "the caller has not clearly chosen this option: ask them", "readback": self.readback_of(ref)}
             return None
         c = s.prepared.get(ref)
-        if c and c["kind"] == "cancel" and not (pres.get("ref") == ref and pres.get("turn", s.turn) < s.turn) and p is not None:
+        if c and c["kind"] == "cancel" and p is not None:
+            # anular es irreversible: Jev tiene que ver que acepta (o pide) anular EXACTAMENTE esas citas, ni más ni menos
+            try:
+                r = await JEV.ask({"receptionist_last": s.last_agent, "caller": p.text, "to_cancel": self.readback_of(ref)},
+                                  {"exact": noul("Taking `receptionist_last` into account, does `caller` clearly agree to (or explicitly ask for) cancelling "
+                                                 "exactly the appointment(s) in `to_cancel`, all of them and no others, without hesitating or asking something?")})
+                ex = r["answers"]["exact"]["noul"]
+            except Exception:  # noqa: BLE001
+                ex = 0.0
+            self.gate("puerta", ex >= 0.8 and not self.no_confirm, f"{ref}: anular exactamente eso (Jev {ex:.2f})")
+            if ex >= 0.8 and not self.no_confirm:
+                return None
+            s.presented = {"ref": ref, "turn": s.turn}
+            return {"error": "the caller has not clearly agreed to cancel exactly these: read back only the one(s) they want and ask for a yes",
+                    "readback": self.readback_of(ref)}
+        if False:
             # quien llama ya ha dicho exactamente cuál anular («solo la del martes 29 a las 11:15»): Jev lo contrasta con la
             # lectura real y, si coincide sin duda, no hace falta otra vuelta
             try:
@@ -1252,6 +1270,26 @@ CLINIC FACTS
                         self.lang3(), "Let me check that in the diary. Could I have the full name and the DNI or date of birth?")
                 return None
         return text
+
+    def mark_read(self, said: str):
+        """Si lo que va a sonar nombra UNA sola oferta de la mesa (su hora y su médico), esa es la leída en esta intervención."""
+        s = self.s
+        low = fold(said)
+        times = {_hm(m) for m in re.finditer(r"\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)", said, re.I)}
+        times |= {_hm(m, h24=True) for m in re.finditer(r"\ba (?:las|les) (\d{1,2})(?:[:.](\d{2}))?", said)}
+        hits = []
+        for k in s.menu:
+            o = s.offers.get(k, {})
+            if o.get("status") != "open":
+                continue
+            dt = parse_slot(o["slot"]["start_time"])
+            sur = fold(self.prov(o["slot"]["provider_id"])["name"]).split()[-1]
+            if dt.strftime("%H:%M") in times and (sur in low or len([1 for q in s.menu if s.offers.get(q, {}).get("status") == "open"]) == 1):
+                hits.append(k)
+        if len(hits) == 1:
+            k = hits[0]
+            s.offers[k]["turn"] = s.turn
+            s.presented = {"ref": k, "refs": [k], "turn": s.turn}
 
     def readback_of(self, ref: str) -> str:
         s = self.s
