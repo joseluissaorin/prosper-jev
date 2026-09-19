@@ -391,9 +391,13 @@ class VoiceCall:
                 # detector ya ha esperado sus 250 ms antes de declarar el final, y encima se le pedían otros
                 # 250-300. Si Jev ve la frase terminada con holgura y el texto no se mueve, se cierra ya: son
                 # ~500 ms de los ~1 100 que quedaban. Si el definitivo llegara distinto, deshacer ya lo recoge.
+                # Con el oído de ElevenLabs (Scribe) los parciales llegan cortados, así que Jev ve la frase a
+                # medias («terminada 0,07») aunque quien llama haya acabado: sin esta regla el turno esperaba al
+                # tope de 1,3 s. Si el texto lleva casi un segundo sin moverse y hay medio de silencio, terminó.
                 if (silence >= 1.3
                         or (silence >= 0.05 and stable >= 0.15 and fin is not None and fin >= 0.92)
                         or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
+                        or (silence >= 0.5 and stable >= 0.8)
                         or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
                     why = f"silencio {silence:.2f} s"
             # voz de fondo: el detector lleva ≥3 s oyendo voz SIN una sola pausa (una persona hace pausas; una tele no)
@@ -605,7 +609,9 @@ class VoiceCall:
         # parcial reinicia el trabajo y la especulación va siempre un parcial por detrás
         done_same = self.ready_get(full) is not None
         doing_same = self.planning is not None and same_words(self.planning[0], full)
-        if p.finished >= 0.85 and self.tts and not self.agent_speaking and not done_same and not doing_same:
+        # se planifica con «terminada» alta o, si el oído trunca los parciales, en cuanto el texto se queda quieto
+        quieto = self.interim and full.endswith(self.interim) and (time.perf_counter() - self.interim_t) >= 0.3
+        if (p.finished >= 0.85 or quieto) and self.tts and not self.agent_speaking and not done_same and not doing_same:
             if self.plan_task and not self.plan_task.done():
                 self.plan_task.cancel()                 # el parcial anterior pedía otra cosa: ese plan ya no vale
             self.planning = (full, time.perf_counter())
