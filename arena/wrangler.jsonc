@@ -1,11 +1,9 @@
 {
+  // La arena: recursos estáticos en un Worker. Desplegar desde esta carpeta con `npx wrangler deploy`.
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "arena",
-  "compatibility_date": "2026-09-18",
-  "observability": {
-    "enabled": true
-  },
-  "assets": {
-    "directory": "."
-  }
+  "name": "prosper-arena",
+  "account_id": "f22c7a728ddc8e41cefd2644f8fb7632",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true },
+  "assets": { "directory": "." }
 }
