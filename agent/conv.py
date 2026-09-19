@@ -654,6 +654,8 @@ HOW YOU SPEAK (a phone call: everything you write is spoken aloud)
 - Warm, calm and brief: one or two short sentences, normally under 30 words. No lists, no markdown, no emojis, never ids or codes.
 - Ask for what you need in one go (e.g. "Could I have the patient's full name and their DNI or date of birth?").
 - Say dates and times naturally ("Monday the 21st of September at 9:15 am"). Read offers back using the readback the tool gives you.
+- Say the full date, doctor and site only once per offer; afterwards refer to it briefly ("the 9:15 with Dr. Sáez"). Keep confirmations short.
+- If the caller already said exactly which appointment(s) to cancel, call prepare_cancellation and confirm_cancellation in the same turn.
 - Answer any question the caller asks before moving on. If the caller asks what you have done, say exactly what the tools did.
 - Never repeat the greeting. Do not ask "anything else?" twice in a row; if they have nothing else, say goodbye and call end_call.
 - When you call confirm_booking, confirm_cancellation, confirm_registration, decline or end_call, write what you say in the SAME
@@ -1010,6 +1012,20 @@ CLINIC FACTS
             if not yes:
                 return {"error": "the caller has not clearly chosen this option: ask them", "readback": self.readback_of(ref)}
             return None
+        c = s.prepared.get(ref)
+        if c and c["kind"] == "cancel" and not (pres.get("ref") == ref and pres.get("turn", s.turn) < s.turn) and p is not None:
+            # quien llama ya ha dicho exactamente cuál anular («solo la del martes 29 a las 11:15»): Jev lo contrasta con la
+            # lectura real y, si coincide sin duda, no hace falta otra vuelta
+            try:
+                r = await JEV.ask({"caller": p.text, "to_cancel": self.readback_of(ref)},
+                                  {"explicit": noul("Does `caller` explicitly and unambiguously ask to cancel exactly the appointment(s) in `to_cancel` "
+                                                    "(no more, no fewer), without hesitating or asking something?")})
+                ex = r["answers"]["explicit"]["noul"]
+            except Exception:  # noqa: BLE001
+                ex = 0.0
+            self.gate("puerta", ex >= 0.85, f"{ref}: petición explícita de anular (Jev {ex:.2f})")
+            if ex >= 0.85:
+                return None
         po, ro = s.offers.get(pres.get("ref", "")), s.offers.get(ref)
         if po and ro and po is not ro and po["slot"]["start_time"] == ro["slot"]["start_time"] and po["slot"]["provider_id"] == ro["slot"]["provider_id"]:
             ref = pres["ref"]                     # la misma oferta con otro id: vale lo leído
@@ -1195,7 +1211,8 @@ CLINIC FACTS
         tools = [e["event"] for e in events if e.get("kind") == "event" and e["event"].get("kind") == "tool"]
         wrote = any(t["name"].startswith("confirm_") and '"error"' not in t.get("result", "") for t in tools)
         failed = any(t["name"].startswith("confirm_") and '"error"' in t.get("result", "") for t in tools)
-        if failed and not wrote and text:
+        claim_words = re.search(r"\b(done|booked|you'?re (all )?set|moved|cancel+ed|registered|hecho|listo|reservad|anulad|cambiad|fet|anul.lad)\b", fold(text or ""))
+        if (failed or claim_words) and not wrote and text:
             try:
                 r = await JEV.ask({"reply": text}, {"claims": noul("Does `reply` tell the caller that something has been booked, moved, "
                                                                     "cancelled or registered (as already done)?")})
@@ -1204,6 +1221,13 @@ CLINIC FACTS
                 claims = 1.0 if re.search(r"\b(done|booked|cancel+ed|moved|registered|hecho|reservad|anulad|cambiad|fet)\b", fold(text)) else 0.0
             if claims >= 0.5:
                 ref = (s.presented or {}).get("ref", "")
+                # dice que está hecho sin haberlo escrito: si la puerta lo permite (petición explícita o «sí» claro), se hace de verdad
+                if ref and (ref in s.prepared or s.offers.get(ref, {}).get("status") == "open") and not self._dry:
+                    fn = {"cancel": self.t_confirm_cancellation, "register": self.t_confirm_registration}.get((s.prepared.get(ref) or {}).get("kind"))
+                    res = await (fn(ref) if fn else self.t_confirm_booking(ref))
+                    if isinstance(res, dict) and "error" not in res:
+                        self._log("truth_guard", said=text[:160], executed=ref)
+                        return text
                 rb = self.readback_of(ref)
                 self._log("truth_guard", said=text[:160], claims=round(claims, 2))
                 return {"es": f"Para confirmar: {rb}. ¿Lo hago?", "ca": f"Per confirmar: {rb}. Ho faig?"}.get(self.lang3(), f"Just to confirm: {rb}. Shall I go ahead?") if rb else SORRY.get(s.lang, SORRY["en"])
