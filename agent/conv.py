@@ -1157,17 +1157,17 @@ CLINIC FACTS
         LN = {"ca": "Catalan", "es": "Spanish", "en": "English"}
 
         def days(sc):
-            return ", ".join(f"{D.get(d['weekday'], d['weekday'])} {'/'.join(d['intervals'])}" for d in sc["days"])
+            return ", ".join(f"{D.get(d['weekday'], d['weekday'])} {_iv(d)}" for d in sc["days"])
         provs = [p for p in c["providers"] if not specialty or p["specialty_id"] == specialty]
         if topic in ("sites_for_specialty", "doctors_for_specialty") and specialty:
-            rows = [f"{sc['location_name']}: {p['name']} ({days(sc)})" + (" (on leave now)" if p.get("leave") else "") for p in provs for sc in p.get("schedules", [])
+            rows = [f"{_ln(sc)}: {p['name']} ({days(sc)})" + (" (on leave now)" if p.get("leave") else "") for p in provs for sc in p.get("schedules", [])
                     if not location_id or sc["location_id"] == location_id]
-            sites = sorted({sc["location_name"] for p in provs for sc in p.get("schedules", []) if not p.get("leave")})
+            sites = sorted({_ln(sc) for p in provs for sc in p.get("schedules", []) if not p.get("leave")})
             return {"answer": f"{self.spec_name(specialty)} is seen at {', '.join(sites)}. Details: " + "; ".join(rows),
                     "doctors": sorted({p["name"] for p in provs}), "count_doctors": len({p["id"] for p in provs})}
         if topic == "doctor_where_and_when" and provider_id:
             p = self.prov(provider_id)
-            return {"answer": f"{p['name']} ({p.get('specialty_name', '')}) consults at " + "; ".join(f"{sc['location_name']}: {days(sc)}" for sc in p.get("schedules", []))
+            return {"answer": f"{p['name']} ({p.get('specialty_name', '')}) consults at " + "; ".join(f"{_ln(sc)}: {days(sc)}" for sc in p.get("schedules", []))
                     + (f". On leave until {p['leave'].get('end')}" if p.get("leave") else "")}
         if topic in ("site_hours", "site_address"):
             locs = [l for l in c["locations"] if not location_id or l["id"] == location_id]
@@ -1398,6 +1398,18 @@ def _hm(m, h24: bool = False) -> str | None:
     return f"{h:02d}:{mi:02d}" if 0 <= h < 24 and 0 <= mi < 60 else None
 
 
+def _iv(d: dict) -> str:
+    """Horario de un día en cualquiera de los dos formatos del catálogo (intervals, u opens/closes)."""
+    return "/".join(d.get("intervals") or []) or f"{d.get('opens', '?')}–{d.get('closes', '?')}"
+
+
+_LOC_NAMES = {"centro": "Arenal Centro", "norte": "Arenal Norte", "sur": "Arenal Sur"}
+
+
+def _ln(sc: dict) -> str:
+    return sc.get("location_name") or _LOC_NAMES.get(sc.get("location_id", ""), sc.get("location_id", ""))
+
+
 def _spoken_email(em: str) -> str:
     return (em.replace("_", " underscore ").replace("-", " dash ").replace(".", " dot ").replace("@", " at ")).replace("  ", " ").strip()
 
@@ -1474,7 +1486,7 @@ def build_facts(c: dict, now: datetime) -> str:
                  + (f" Not covered by: {', '.join(x['name'] for x in l.get('not_covered_by', []))}." if l.get("not_covered_by") else ""))
     P_ = []
     for p in c["providers"]:
-        sched = "; ".join(f"{sc['location_name']} " + ", ".join(f"{d['weekday'][:3].title()} {'/'.join(d['intervals'])}" for d in sc["days"]) for sc in p.get("schedules", []))
+        sched = "; ".join(f"{_ln(sc)} " + ", ".join(f"{d['weekday'][:3].title()} {_iv(d)}" for d in sc["days"]) for sc in p.get("schedules", []))
         extra = []
         if p.get("leave"):
             extra.append(f"ON LEAVE {p['leave'].get('start', '')} to {p['leave'].get('end', '')}")
@@ -1494,7 +1506,7 @@ def build_facts(c: dict, now: datetime) -> str:
             if p["specialty_id"] != x["id"]:
                 continue
             for sc in p.get("schedules", []):
-                rows.append(f"{sc['location_name']}: {p['name']} ({', '.join(d['weekday'][:3].title() + ' ' + '/'.join(d['intervals']) for d in sc['days'])})"
+                rows.append(f"{_ln(sc)}: {p['name']} ({', '.join(d['weekday'][:3].title() + ' ' + _iv(d) for d in sc['days'])})"
                             + (" ON LEAVE" if p.get("leave") else ""))
         BY.append(f"- {x['name']}: " + "; ".join(rows))
     closures = set(c["calendar"].get("closure_days", []))
