@@ -242,12 +242,23 @@ async def caller_turn(case: dict, hist: list[tuple[str, str]]) -> str:
     cfg = types.GenerateContentConfig(system_instruction=sys_, temperature=0.7, max_output_tokens=1500,
                                       thinking_config=types.ThinkingConfig(thinking_level="minimal"),
                                       automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
-    for attempt in range(5):
+    for attempt in range(3):
         try:
             r = await asyncio.wait_for(CLIENT.aio.models.generate_content(model=CALLER_MODEL, contents=contents, config=cfg), timeout=40)
             return (r.text or "").strip()
-        except Exception:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
+            if "PERMISSION_DENIED" in str(e):
+                break                      # Google no sirve a este proyecto: quien llama lo interpreta OpenRouter
             await asyncio.sleep(1.5 * (attempt + 1))
+    # respaldo: el mismo llamante por OpenRouter
+    import conv as C
+    msgs = [types.Content(role=("model" if who == "caller" else "user"), parts=[types.Part(text=t)]) for who, t in hist]
+    for attempt in range(3):
+        try:
+            cand = await C.or_chat(sys_, msgs, None, timeout=30)
+            return " ".join(pt.text for pt in (cand.parts or []) if pt.text).strip()
+        except Exception:  # noqa: BLE001
+            await asyncio.sleep(1.0 * (attempt + 1))
     return "[END]"
 
 

@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 
 import httpx
+from pathlib import Path
 from google.genai import types
 
 import leer
@@ -40,6 +41,106 @@ from prosper_api import MADRID, ApiError, normalize_national_id, parse_slot
 from system2 import CLIENT as GEMINI
 
 PLANNER_MODEL = os.environ.get("PLANNER_MODEL", "gemini-3.5-flash-lite")
+# Respaldo cuando Google deja de servir (el 20-09-2026 denegó el proyecto entero: 403 PERMISSION_DENIED). Las mismas
+# herramientas por OpenRouter, que factura aparte. Medido ese día con nuestro esquema real: gpt-oss-120b en Groq 0,59 s
+# por paso (más rápido que Gemini), en Cerebras 1,11 s, y gemini-3.5-flash-lite por OpenRouter 1,14 s.
+OR_MODEL = os.environ.get("OR_MODEL", "openai/gpt-oss-120b")
+OR_PROVIDERS = [x for x in os.environ.get("OR_PROVIDERS", "Groq,Cerebras").split(",") if x]
+OR_URL = "https://openrouter.ai/api/v1/chat/completions"
+_OR: dict = {"down": False, "client": None}
+
+
+def _or_key() -> str:
+    if os.environ.get("OPENROUTER_API_KEY"):
+        return os.environ["OPENROUTER_API_KEY"]
+    f = Path.home() / ".claude/.secrets/openrouter.env"
+    if f.exists():
+        for line in f.read_text().splitlines():
+            if line.startswith("OPENROUTER_API_KEY="):
+                return line.split("=", 1)[1].strip()
+    return ""
+
+
+def _denied(e: Exception) -> bool:
+    t = str(e)
+    return "PERMISSION_DENIED" in t or "403" in t and "denied" in t.lower()
+
+
+def _to_openai(system: str, msgs: list) -> list:
+    """Las mismas intervenciones (formato Gemini) en el formato de OpenAI, herramientas incluidas."""
+    out = [{"role": "system", "content": system}]
+    pending: list[str] = []
+    for m in msgs:
+        parts = list(m.parts or [])
+        calls = [pt.function_call for pt in parts if getattr(pt, "function_call", None)]
+        resps = [pt.function_response for pt in parts if getattr(pt, "function_response", None)]
+        text = " ".join(pt.text for pt in parts if getattr(pt, "text", None)).strip()
+        if m.role == "model":
+            msg: dict = {"role": "assistant", "content": text or None}
+            if calls:
+                pending = [f"c{len(out)}_{i}" for i in range(len(calls))]
+                msg["tool_calls"] = [{"id": pending[i], "type": "function",
+                                      "function": {"name": c.name, "arguments": json.dumps(dict(c.args or {}), ensure_ascii=False)}}
+                                     for i, c in enumerate(calls)]
+            out.append(msg)
+        elif resps:
+            for i, r in enumerate(resps):
+                out.append({"role": "tool", "tool_call_id": pending[i] if i < len(pending) else f"c{len(out)}_{i}",
+                            "content": json.dumps(r.response, ensure_ascii=False, default=str)[:4000]})
+            pending = []
+        elif text:
+            out.append({"role": "user", "content": text})
+    return out
+
+
+async def or_chat(system: str, msgs: list, tools: list | None, timeout: float = 8.0, schema: dict | None = None) -> types.Content:
+    """Un paso del planificador por OpenRouter, devuelto en el mismo formato que Gemini."""
+    key = _or_key()
+    if not key:
+        raise RuntimeError("sin OPENROUTER_API_KEY")
+    if _OR["client"] is None:
+        _OR["client"] = httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=4.0), headers={"Authorization": f"Bearer {key}"},
+                                          limits=httpx.Limits(max_keepalive_connections=8, max_connections=16, keepalive_expiry=120))
+    body: dict = {"model": OR_MODEL, "messages": _to_openai(system, msgs), "temperature": 0.2, "max_tokens": 600}
+    if OR_PROVIDERS:
+        body["provider"] = {"order": OR_PROVIDERS}
+    if tools:
+        body["tools"] = [{"type": "function", "function": t} for t in tools]
+    if schema:
+        body["response_format"] = {"type": "json_schema", "json_schema": {"name": "answer", "strict": False, "schema": schema}}
+    r = await _OR["client"].post(OR_URL, json=body, timeout=timeout)
+    if r.status_code != 200:
+        raise RuntimeError(f"openrouter {r.status_code}: {r.text[:200]}")
+    m = r.json()["choices"][0]["message"]
+    parts = []
+    if m.get("content"):
+        parts.append(types.Part(text=m["content"]))
+    for tc in m.get("tool_calls") or []:
+        try:
+            args = json.loads(tc["function"].get("arguments") or "{}")
+        except json.JSONDecodeError:
+            args = {}
+        parts.append(types.Part(function_call=types.FunctionCall(name=tc["function"]["name"], args=args)))
+    return types.Content(role="model", parts=parts or [types.Part(text="")])
+
+
+async def llm_step(system: str, msgs: list, tools: list | None, timeout: float = 5.0, schema: dict | None = None) -> types.Content:
+    """Un paso del Sistema 2: Gemini y, si Google deniega el proyecto o falla, OpenRouter (y ya no se vuelve a intentar)."""
+    if not _OR["down"]:
+        cfg = types.GenerateContentConfig(system_instruction=system, temperature=0.2, max_output_tokens=600,
+                                          automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                                          **({"tools": [types.Tool(function_declarations=tools)]} if tools else {}),
+                                          **({"response_mime_type": "application/json", "response_schema": schema} if schema else {}))
+        try:
+            r = await asyncio.wait_for(GEMINI.aio.models.generate_content(model=PLANNER_MODEL, contents=msgs, config=cfg), timeout=timeout)
+            cand = r.candidates[0].content if r.candidates and r.candidates[0].content else None
+            return cand if cand and cand.parts else types.Content(role="model", parts=[types.Part(text=r.text or "")])
+        except Exception as e:  # noqa: BLE001
+            if _denied(e):
+                _OR["down"] = True                     # Google no sirve a este proyecto: se pasa a OpenRouter y no se reintenta
+            else:
+                raise
+    return await or_chat(system, msgs, tools, timeout=max(timeout, 6.0), schema=schema)
 SUBMIT = os.environ.get("SUBMIT", "1") == "1"
 LANGS = {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque", "fr": "French", "de": "German", "it": "Italian",
          "pt": "Portuguese", "ro": "Romanian", "nl": "Dutch", "pl": "Polish", "ru": "Russian", "uk": "Ukrainian", "ar": "Arabic", "zh": "Chinese"}
@@ -908,19 +1009,16 @@ class Conv:
     async def plan(self) -> tuple[str, bool, list]:
         s = self.s
         self._errs = {}
-        cfg = types.GenerateContentConfig(
-            system_instruction=self.system_prompt(), tools=[types.Tool(function_declarations=TOOLS)], temperature=0.2, max_output_tokens=600,
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
+        system = self.system_prompt()
         events, ended = [], False
         for step in range(7):
             t0 = time.perf_counter()
             try:
-                r = await asyncio.wait_for(GEMINI.aio.models.generate_content(model=PLANNER_MODEL, contents=s.msgs, config=cfg), timeout=5)
-            except (asyncio.TimeoutError, Exception) as e:  # noqa: BLE001
+                cand = await llm_step(system, s.msgs, TOOLS, timeout=5)
+            except Exception as e:  # noqa: BLE001
                 events.append(self._log("planner_retry", error=repr(e)[:120]))
-                r = await asyncio.wait_for(GEMINI.aio.models.generate_content(model=PLANNER_MODEL, contents=s.msgs, config=cfg), timeout=6)
+                cand = await llm_step(system, s.msgs, TOOLS, timeout=6)
             ms = round((time.perf_counter() - t0) * 1000)
-            cand = r.candidates[0].content if r.candidates and r.candidates[0].content else None
             if cand is None or not cand.parts:
                 cand = types.Content(role="model", parts=[types.Part(text="")])
             calls = [pt.function_call for pt in cand.parts if pt.function_call]
@@ -2060,12 +2158,12 @@ async def fallback_judge(state: dict, qs: dict) -> tuple[dict, int]:
             lines.append(f"- {k} (probability 0 to 1): {q['instructions']}")
     prompt = ("You judge one turn of a phone call to a clinic receptionist. State:\n" + json.dumps(state, ensure_ascii=False)
               + "\n\nAnswer every question:\n" + "\n".join(lines))
-    cfg = types.GenerateContentConfig(response_mime_type="application/json", temperature=0,
-                                      response_schema={"type": "object", "properties": props, "required": list(props)})
     raw = {}
     try:
-        r = await asyncio.wait_for(GEMINI.aio.models.generate_content(model=PLANNER_MODEL, contents=prompt, config=cfg), timeout=5)
-        js = json.loads(r.text or "{}")
+        cand = await llm_step("You are a calibrated judge of phone-call turns. Answer only with JSON.",
+                              [types.Content(role="user", parts=[types.Part(text=prompt)])], None, timeout=5,
+                              schema={"type": "object", "properties": props, "required": list(props)})
+        js = json.loads(" ".join(pt.text for pt in (cand.parts or []) if pt.text) or "{}")
     except Exception:  # noqa: BLE001
         js = {}
     for k, q in qs.items():
