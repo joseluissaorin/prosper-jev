@@ -169,6 +169,7 @@ class VoiceCall:
         self.close_task: asyncio.Task | None = None
         self.vad_end_t = 0.0
         self.closed_t = 0.0
+        self.turn_text = False
         self.noisy = False               # voz de fondo continua: el turno lo marca el texto, no el detector
         self.interim_t = 0.0
         self.ears: Ears | None = None
@@ -321,6 +322,7 @@ class VoiceCall:
             self.respond_timer.cancel()
             self.respond_timer = None
         self.turn_open = True
+        self.turn_text = False           # ¿ha llegado ya algún parcial de ESTE turno?
         act = await self.ears.activity_start(b"".join(self.ring))
         if self.first_act is None:
             self.first_act = act
@@ -346,7 +348,7 @@ class VoiceCall:
                         or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
                         or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
                     why = f"silencio {silence:.2f} s"
-            elif self.interim and ((stable >= 1.2 and fin is not None and fin >= 0.7) or stable >= 2.5):
+            elif self.turn_text and self.interim and ((stable >= 1.2 and fin is not None and fin >= 0.7) or stable >= 2.5):
                 why = "el detector oye voz de fondo pero el texto no cambia"
                 self.noisy = True
             elif now - t_open >= 25:
@@ -377,10 +379,12 @@ class VoiceCall:
         if self.first_turn and tag == "o1" and self.call and not self.call.s.lang_locked:
             self.spawn(self.probe_check(text))
         # deshacer solo con palabras de verdad (no con ruido) de una intervención empezada tras la respuesta
-        if self.undo and self.act_start_t > self.undo[2]:
+        if self.undo and self.act_start_t > self.undo[2] and not self.noisy:
             await self.maybe_undo()
         if text != self.interim:
             self.interim_t = time.perf_counter()
+        if self.turn_open:
+            self.turn_text = True
         self.interim = text
         full = " ".join(self.segments + [text]).strip()
         await self.emit("partial", text=full)

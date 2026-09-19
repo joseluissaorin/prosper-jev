@@ -46,9 +46,10 @@ class Stt:
         self.ready = asyncio.Event()
         self.in_activity = False
         self.t_end: float | None = None
+        self.cur_act = -1              # intervención a la que pertenecen los parciales que llegan
 
     def _config(self):
-        kw = {"custom_vocabulary": VOCAB}
+        kw = {"custom_vocabulary": VOCAB} if VOCAB else {}
         if self.langs:
             kw["language_codes"] = self.langs
         return types.LiveConnectConfig(
@@ -80,7 +81,7 @@ class Stt:
                     if not sc:
                         continue
                     if sc.interim_input_transcription and sc.interim_input_transcription.text:
-                        await self.on_interim(self.tag, sc.interim_input_transcription.text)
+                        await self.on_interim(self.tag, sc.interim_input_transcription.text, self.cur_act)
                     if sc.input_transcription and sc.input_transcription.text:
                         lag = round((time.perf_counter() - self.t_end) * 1000) if self.t_end else None
                         act = self.acts.pop(0) if self.acts else -1
@@ -113,8 +114,9 @@ class Stt:
         if old_cm:
             asyncio.create_task(_aexit(old_cm))
 
-    async def activity_start(self, preroll: bytes = b""):
+    async def activity_start(self, preroll: bytes = b"", act: int = -1):
         await self.ready.wait()
+        self.cur_act = act
         self.in_activity = True
         self.pushed = 0
         await self._send(activity_start=types.ActivityStart())
@@ -158,6 +160,7 @@ class Ears:
         self.in_activity = False
         self.texts: dict[int, dict[str, str]] = {}   # intervención → {sesión: definitivo}
         self.interims: dict[str, str] = {}
+        self.primary: dict[int, str] = {}              # intervención → sesión cuyos parciales cuentan
         self.gen = 0
 
     async def start(self):
@@ -188,7 +191,7 @@ class Ears:
             asyncio.create_task(later())
         self.act += 1
         self.in_activity = True
-        await asyncio.gather(*[s.activity_start(preroll) for s in self.sessions], return_exceptions=True)
+        await asyncio.gather(*[s.activity_start(preroll, self.act) for s in self.sessions], return_exceptions=True)
         return self.act
 
     async def push(self, pcm: bytes):
@@ -198,8 +201,15 @@ class Ears:
         self.in_activity = False
         await asyncio.gather(*[s.activity_end(self.act) for s in self.sessions], return_exceptions=True)
 
-    async def _interim(self, tag, text):
+    async def _interim(self, tag, text, act=-1):
+        """Solo pasan los parciales de la intervención en curso, sin definitivo aún, y de UNA sesión (la primera
+        que habla en cada intervención): las dos sesiones dan parciales distintos y, alternándose, el texto no
+        parecía estable nunca."""
         self.interims[tag] = text
+        if act != self.act or act in self.texts:
+            return
+        if self.primary.setdefault(act, tag) != tag:
+            return
         await self.on_interim(tag, text)
 
     async def _final(self, tag, text, lag, act):

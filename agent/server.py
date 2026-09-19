@@ -79,8 +79,8 @@ async def prosper_vocabulary():
     import voice
     # Solo especialidades: los nombres propios del catálogo sesgaban los de los pacientes («Pau Vidal Serra» →
     # «Pablo Vilar Sáenz», «Elena» → «Arenal») y las letras del DNI («S» → «ASISA»). Las sedes las encaja Jev.
-    words = {"gynaecology", "orthopaedics", "paediatrics", "physiotherapy", "dermatology"}
-    voice.VOCAB[:] = sorted(words)
+    # Y ni eso: con murmullo de fondo el transcriptor «oía» «gynaecology». Sin vocabulario; Jev encaja lo demás.
+    voice.VOCAB[:] = []
 
 
 @asynccontextmanager
