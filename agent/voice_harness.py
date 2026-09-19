@@ -40,7 +40,7 @@ from system2 import CLIENT  # noqa: E402
 
 # por defecto, la instancia LOCAL (contra la clínica simulada): la de 7860 atiende al arnés de Prosper con la API real
 AGENT = os.environ.get("AGENT_WS", "ws://127.0.0.1:7861/ws")
-MONITOR = AGENT.rsplit("/", 1)[0] + "/monitor"
+MONITOR = AGENT.rsplit("/", 1)[0] + "/monitor" + (f"?t={os.environ['MONITOR_TOKEN']}" if os.environ.get("MONITOR_TOKEN") else "")
 API = os.environ.get("HARNESS_API", "http://127.0.0.1:8770")   # la clínica simulada, nunca la real
 CACHE = HERE / "cache" / "harness"
 CACHE.mkdir(parents=True, exist_ok=True)
@@ -237,6 +237,7 @@ def _pick(t: str, lines: dict) -> str | None:
 
 
 DEBUG = os.environ.get("DEBUG") == "1"
+GAP_S = 0.15      # silencio a mitad de una intervención del agente que ya cuenta como hueco
 
 
 def dbg(*a):
@@ -265,6 +266,13 @@ class Call:
         self.noise = noise_bed(case["noise"], seed=hash(case["id"]) % 1000) * NOISE_RMS if case.get("noise") else None
         self.noise_pos = 0
         self.seq = 0
+        # lo que oye quien llama: reproducción simulada de la voz del agente, para contar huecos a mitad de frase
+        self.play_t: float | None = None
+        self.utt_gaps: list[int] = []
+        self.utts = 0
+        self.gapped: list[list[int]] = []
+        self.agent_lat: list[int] = []
+        self.voice_ev: list[dict] = []
 
     def line(self, key: str) -> str | None:
         v = self.c["lines"].get(key)
@@ -341,17 +349,34 @@ class Call:
                     self.first_agent_audio_after = now
                     self.lat.append((now - self.speech_end) * 1000)
                 self.last_agent_audio = now
-                self.agent_audio_s += len(base64.b64decode(e["media"]["payload"])) / SR
+                dur = len(base64.b64decode(e["media"]["payload"])) / SR
+                self.agent_audio_s += dur
+                if self.play_t is None:
+                    self.play_t = now
+                elif now > self.play_t + GAP_S:
+                    self.utt_gaps.append(round((now - self.play_t) * 1000))
+                self.play_t = max(self.play_t, now) + dur
             elif ev in ("mark", "clear"):
-                pass
+                # fin de una intervención del agente (o se calla porque quien llama le interrumpe)
+                if self.play_t is not None:
+                    self.utts += 1
+                    if self.utt_gaps:
+                        self.gapped.append(self.utt_gaps)
+                self.play_t, self.utt_gaps = None, []
             else:
                 self.bad_messages += 1
 
     async def rx_monitor(self, mon):
         async for m in mon:
             e = json.loads(m)
-            if e.get("call_id") == self.sid and e.get("type") == "agent":
+            if e.get("call_id") != self.sid:
+                continue
+            if e.get("type") == "agent":
                 self.agent_texts.append((time.time(), e["text"]))
+            elif e.get("type") == "latency" and e.get("stage", "").startswith("fin de voz"):
+                self.agent_lat.append(e["ms"])
+            elif e.get("type") == "voice":
+                self.voice_ev.append({k: e.get(k) for k in ("source", "first_ms", "gaps")})
 
     async def wait_agent_turn(self, since: float, limit: float = 25.0) -> str | None:
         """Espera a que el agente conteste y termine de hablar; devuelve lo que dijo."""
@@ -441,7 +466,8 @@ class Call:
             ok, why = False, f"{self.bad_messages} mensajes que no son de Twilio"
         return {"id": c["id"], "problem": c["problem"], "ok": ok, "why": why, "acts": acts, "sid": self.sid,
                 "lat": [round(x) for x in self.lat], "said": self.said, "agent": [t for _, t in self.agent_texts],
-                "secs": round(time.time() - t_call, 1), "agent_audio_s": round(self.agent_audio_s, 1), "noise": c.get("noise")}
+                "secs": round(time.time() - t_call, 1), "agent_audio_s": round(self.agent_audio_s, 1), "noise": c.get("noise"),
+                "agent_lat": self.agent_lat, "utts": self.utts, "gapped": self.gapped, "voice": self.voice_ev}
 
     async def wait_first_words(self, since: float, limit: float) -> str | None:
         t0 = time.time()
@@ -499,6 +525,18 @@ async def main():
         L.sort()
         print(f"Respuesta del agente (fin de voz de quien llama → primera voz del agente): mediana {statistics.median(L):.0f} ms · "
               f"p90 {L[int(0.9 * (len(L) - 1))]:.0f} · p99 {L[int(0.99 * (len(L) - 1))]:.0f} · máx {L[-1]:.0f} ms · {len(L)} turnos")
+    A = sorted(x for r in results for x in r.get("agent_lat", []))
+    if A:
+        print(f"Según el agente (fin de voz → primera palabra): mediana {statistics.median(A):.0f} ms · p90 {A[int(0.9 * (len(A) - 1))]:.0f} · "
+              f"máx {A[-1]:.0f} ms · {len(A)} turnos")
+    utts = sum(r.get("utts", 0) for r in results)
+    gapped = [g for r in results for g in r.get("gapped", [])]
+    vs = [v for r in results for v in r.get("voice", [])]
+    src = {}
+    for v in vs:
+        src[v.get("source") or "?"] = src.get(v.get("source") or "?", 0) + 1
+    print(f"Voz del agente: {utts} intervenciones, {len(gapped)} con huecos a mitad (>{GAP_S * 1000:.0f} ms)"
+          + (f", el mayor {max(max(g) for g in gapped)} ms" if gapped else "") + f" · origen {src}")
     ok = sum(r["ok"] for r in results)
     print(f"TOTAL {ok}/{len(results)} en {time.time() - t0:.0f} s")
     out = HERE / "calls" / f"harness_{int(time.time())}.json"
