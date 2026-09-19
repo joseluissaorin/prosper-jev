@@ -1019,8 +1019,11 @@ class Brain:
         s = self.s
         if s.pending == "reg_phone":
             return "phone"
-        n = sum(c.isdigit() for c in text) or len(self.spoken_digits(text))
-        if (s.pending == "reg_national_id" or s.pending.startswith("identity") or not s.patient) and 5 <= n <= 8:
+        if s.pending == "reg_national_id":
+            return "id" if 5 <= (sum(c.isdigit() for c in text) or len(self.spoken_digits(text))) <= 8 else None
+        # al identificar, solo una tira seguida de cifras (una fecha, «14th of September 1978», no es un DNI)
+        runs = [sum(c.isdigit() for c in r) for r in re_findall(r"\d[\d .-]*\d", text)]
+        if (s.pending.startswith("identity") or not s.patient) and runs and 6 <= max(runs) <= 8:
             return "id"
         return None
 
@@ -1042,14 +1045,14 @@ class Brain:
             return []
         alt, ms = await self.second_opinion()
         if not alt or not self.digits_ok(kind, alt, {}):
-            return [self._log("second_opinion", kind=kind, text=alt, ms=ms, used=False)]
+            return [self._log("second_opinion", field=kind, text=alt, ms=ms, used=False)]
         p.ex = dict(p.ex)
         if kind == "phone":
             p.ex["phone"] = self.spoken_digits(alt)
         else:
             p.ex["national_id"] = next(x for x in (spoken_id(alt),) if x and normalize_national_id(x)[0])
         p.text = alt
-        return [self._log("second_opinion", kind=kind, text=alt, ms=ms, used=True)]
+        return [self._log("second_opinion", field=kind, text=alt, ms=ms, used=True)]
 
     async def second_opinion(self) -> tuple[str | None, int]:
         audio = getattr(self, "audio", b"")

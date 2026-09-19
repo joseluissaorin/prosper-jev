@@ -629,7 +629,14 @@ class VoiceCall:
             self.undo_requested = False
             t0 = time.perf_counter()
             before = copy.deepcopy(self.call.s)
-            outs = await self.call.handle(full, p)
+            try:
+                outs = await self.call.handle(full, p)
+            except Exception as e:  # noqa: BLE001
+                # un fallo nuestro nunca deja la línea muda: se restaura el estado y se pide que lo repita
+                log.exception("la política falló: %s", e)
+                await self.emit("log", msg=f"ERROR en la política ({e!r})"[:300])
+                self.call.s = before
+                outs = [{"kind": "say", "text": nlg.say("ask_repeat", getattr(self.call.s, "lang", None) or "en"), "act": "ask_repeat"}]
             if self.undo_requested and not typed:
                 self.call.s = before
                 self.segments, self.answered_text, self.undo_requested = [full], "", False
