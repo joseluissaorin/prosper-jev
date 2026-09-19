@@ -36,7 +36,7 @@ import system2
 from jev import JEV, JevError, choice
 from policy import Call
 from sense import LANG, perceive
-from voice import MOUTH, Ears, Vad, fixed_phrases, make_vad
+from voice import MOUTH, Ears, Vad, fixed_phrases, make_ears, make_vad
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -158,6 +158,7 @@ class VoiceCall:
     RESPOND_WAIT_S = 1.1    # si Jev dice que la frase está a medias, se espera como mucho esto
     UNDO_WINDOW_S = 1.2     # si vuelve a hablar antes de esto, la respuesta se deshace
     WATCHDOG_S = 3.0        # si ninguna sesión devuelve el definitivo, se usa el parcial
+    AUDIO_FMT = "pcm24"     # lo que pide la boca: el navegador reproduce PCM de 24 kHz
 
     def __init__(self, ws: WebSocket):
         self.ws = ws
@@ -227,6 +228,11 @@ class VoiceCall:
         t.add_done_callback(done)
         return t
 
+    def render(self, text: str):
+        """La voz de una frase, en la lengua de la llamada (elige voz y modelo) y en el formato de este cable."""
+        lang = getattr(self.call.s, "lang", None) if self.call else None
+        return MOUTH.render(text, lang=lang, fmt=self.AUDIO_FMT)
+
     @property
     def agent_speaking(self) -> bool:
         return time.time() < self.speaking_until
@@ -275,7 +281,7 @@ class VoiceCall:
         # Sin idioma fijado: una sesión sin pista y otra con pista gallega (sin pista, el gallego puede salir
         # traducido al español). Con idioma fijado: dos sesiones con la misma pista, por redundancia.
         langs = [[nlg.STT_CODES[fixed]]] * 2 if fixed else [[], ["gl-ES"]]
-        self.ears = Ears(self.on_interim, self.on_final, langs)
+        self.ears = make_ears(self.on_interim, self.on_final, langs)
         try:
             await self.ears.start()
         except Exception as e:  # noqa: BLE001
@@ -478,7 +484,7 @@ class VoiceCall:
                             outs = self.merge_says(await self.call.handle(full, p, dry=True))
                             for o in outs:
                                 if o["kind"] == "say":
-                                    MOUTH.render(o["text"])
+                                    self.render(o["text"])
                         except Exception as e:  # noqa: BLE001
                             log.info("preparación especulativa falló: %s", e)
                 full, self.spec_next = self.spec_next, None
@@ -746,7 +752,7 @@ class VoiceCall:
         if not self.tts:
             await self.emit("agent", text=text, act=act, source=source, audio=False)
             return
-        r = MOUTH.render(text)
+        r = self.render(text)
         await self.emit("agent", text=text, act=act, source=source, cached=r.cached or r.done, audio=True)
         first, sent = True, 0
         async for chunk in r.stream():

@@ -53,6 +53,8 @@ function line(e) {
   if (t === "trace") { const v = e.event; if (v.kind === "gate") { const d = el("div", "gate"); d.append(el("span", v.ok ? "ok" : "ko", v.ok ? "✓ " : "✗ ")); d.append(el("span", "", `${v.name}: ${v.detail}`)); return d; }
     if (["offer", "availability", "fallback", "date", "triage", "dni", "identity", "line", "second_plan", "nearest_site", "intent_changed", "lang"].includes(v.kind)) return el("div", "ev", `${v.kind} ${JSON.stringify(Object.fromEntries(Object.entries(v).filter(([k]) => !["t", "kind"].includes(k))))}`); return null; }
   if (t === "latency") return el("div", "ev", `⏱ ${e.stage}: ${e.ms} ms`);
+  if (t === "voice" && (e.source === "gemini" || (e.gaps && e.gaps.length)))
+    return el("div", "ev", `· voz de ${e.source}${e.gaps && e.gaps.length ? ` · huecos a mitad de frase: ${e.gaps.join(", ")} ms` : ""}`);
   if (t === "log" || t === "stop_audio") return el("div", "ev", "· " + (e.msg || e.reason));
   return null;
 }

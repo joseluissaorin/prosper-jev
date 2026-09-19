@@ -1,5 +1,9 @@
-"""La voz: oído (gemini-3.5-transcribe-live), detector de voz en código y boca (gemini-3.1-flash-live-preview)
-con caché en disco. La boca solo lee: el texto lo decide la política."""
+"""La voz: oído, detector de voz en código y boca con caché en disco. La boca solo lee: el texto lo decide la política.
+
+Oído (EARS): gemini (gemini-3.5-transcribe-live, dos sesiones redundantes; por defecto) o scribe (Scribe v2 Realtime
+de ElevenLabs, una sesión con commit manual).
+Boca (MOUTH): elevenlabs (TTS en streaming, µ-law de 8 kHz directo para Twilio; por defecto) o gemini
+(gemini-3.1-flash-live-preview). Si ElevenLabs falla o tarda más de ELEVEN_TTFB_S en dar el primer byte, habla Gemini."""
 from __future__ import annotations
 
 import asyncio
@@ -8,10 +12,14 @@ import hashlib
 import json
 import logging
 import os
+import base64
 import time
 from pathlib import Path
+from urllib.parse import urlencode
 
+import httpx
 import numpy as np
+import websockets
 from google import genai
 from google.genai import types
 
@@ -223,6 +231,194 @@ class Ears:
             await s.close()
 
 
+SCRIBE_MODEL = os.environ.get("SCRIBE_MODEL", "scribe_v2_realtime")
+# Lengua principal y secundarias: sin ellas, una frase corta en castellano puede salir en portugués.
+SCRIBE_LANGS = [x for x in os.environ.get("SCRIBE_LANGS", "en,es,ca").split(",") if x]
+
+
+class ScribeEars:
+    """Oído con Scribe v2 Realtime de ElevenLabs. Misma interfaz que Ears: activity_start(preroll) → intervención,
+    push(pcm16k), activity_end(), close(), set_langs(), y los mismos avisos on_interim(tag, text) y
+    on_final(tag, text, lag_ms, act, duplicate=). Una sola sesión WebSocket por llamada; cada intervención se cierra
+    con un commit manual y su definitivo llega en orden. La lengua la detecta Scribe en cada commit (dentro de
+    SCRIBE_LANGS), así que si quien llama cambia de lengua a mitad no hace falta reconectar.
+
+    Trampas medidas: (1) Scribe cierra la sesión si pasan ~15 s sin audio, así que entre intervenciones se manda un
+    poco de silencio cada 4 s; (2) un commit con menos de 0,3 s de audio se ignora (commit_throttled), así que se
+    rellena con silencio."""
+
+    TAG = "s0"
+    MIN_COMMIT_BYTES = 16000 * 2 * 35 // 100      # 0,35 s a 16 kHz
+
+    def __init__(self, on_interim, on_final, langs_list: list[list[str]] | None = None):
+        self.on_interim, self.on_final = on_interim, on_final
+        self.act = 0
+        self.in_activity = False
+        self.texts: dict[int, dict[str, str]] = {}
+        self.pending: list[tuple[int, float]] = []     # (intervención, instante del commit), en orden
+        self.ws = None
+        self.ready = asyncio.Event()
+        self.pushed = 0
+        self.last_send = 0.0
+        self.closed = False
+        self.langs = list(SCRIBE_LANGS)
+        self._rx: asyncio.Task | None = None
+        self._ka: asyncio.Task | None = None
+        self._lock = asyncio.Lock()
+        self._reconnecting: asyncio.Task | None = None
+
+    def _url(self) -> str:
+        q = [("model_id", SCRIBE_MODEL), ("audio_format", "pcm_16000"), ("commit_strategy", "manual"),
+             ("filter_background_audio", "true")]
+        if self.langs:
+            q.append(("language_code", self.langs[0]))
+            q += [("secondary_languages", l) for l in self.langs[1:]]
+        q += [("keyterms", w) for w in VOCAB[:50] if len(w) <= 20]
+        return "wss://api.elevenlabs.io/v1/speech-to-text/realtime?" + urlencode(q)
+
+    async def start(self):
+        last = None
+        for attempt in range(3):
+            try:
+                self.ws = await asyncio.wait_for(websockets.connect(
+                    self._url(), additional_headers={"xi-api-key": _eleven_key()}, max_size=None, ping_interval=10), timeout=6)
+                self._rx = asyncio.create_task(self._receive(self.ws))
+                self.last_send = time.time()
+                if self._ka is None:
+                    self._ka = asyncio.create_task(self._keepalive())
+                self.ready.set()
+                return
+            except Exception as e:  # noqa: BLE001
+                last = e
+                log.warning("Scribe: no conecta (intento %d): %s", attempt + 1, e)
+                await asyncio.sleep(0.3 * (attempt + 1))
+        raise RuntimeError(f"Scribe no conecta: {last}")
+
+    async def _receive(self, ws):
+        try:
+            async for raw in ws:
+                m = json.loads(raw)
+                typ = m.get("message_type")
+                if typ == "partial_transcript":
+                    text = (m.get("text") or "").strip()
+                    if text and self.in_activity and self.act not in self.texts:
+                        await self.on_interim(self.TAG, text)
+                elif typ == "committed_transcript":
+                    act, t_commit = self.pending.pop(0) if self.pending else (-1, None)
+                    text = (m.get("text") or "").strip()
+                    if not text:
+                        continue
+                    lag = round((time.perf_counter() - t_commit) * 1000) if t_commit else None
+                    seen = act in self.texts
+                    self.texts.setdefault(act, {})[self.TAG] = text
+                    await self.on_final(self.TAG, text, lag, act, duplicate=seen)
+                elif typ == "commit_throttled":
+                    if self.pending:
+                        self.pending.pop(0)
+                    log.warning("Scribe: commit ignorado: %s", m.get("error"))
+                elif typ not in ("session_started", "committed_transcript_with_timestamps", "committed_transcript_entities"):
+                    log.warning("Scribe: %s: %s", typ, m.get("error") or m)
+        except asyncio.CancelledError:
+            return
+        except Exception as e:  # noqa: BLE001
+            log.warning("Scribe: sesión cerrada: %s", e)
+        if not self.closed and ws is self.ws:
+            # los definitivos pendientes de esta sesión ya no llegarán: el vigilante de la llamada usará el parcial
+            self.pending.clear()
+            self._reconnect_soon()
+
+    def _reconnect_soon(self):
+        if self._reconnecting is None or self._reconnecting.done():
+            self.ready.clear()
+            self._reconnecting = asyncio.create_task(self._reconnect())
+
+    async def _reconnect(self):
+        old = self.ws
+        try:
+            await self.start()
+        except Exception as e:  # noqa: BLE001
+            log.warning("Scribe: no se pudo reconectar: %s", e)
+        if old is not None and old is not self.ws:
+            asyncio.create_task(old.close())
+
+    async def _send(self, pcm: bytes, commit: bool = False):
+        msg = json.dumps({"message_type": "input_audio_chunk", "audio_base_64": base64.b64encode(pcm).decode(),
+                          "commit": commit, "sample_rate": 16000})
+        async with self._lock:
+            if not self.ready.is_set():
+                await asyncio.wait_for(self.ready.wait(), timeout=6)
+            try:
+                await self.ws.send(msg)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Scribe: envío fallido (%s); se reconecta", e)
+                self._reconnect_soon()
+                await asyncio.wait_for(self._reconnecting, timeout=8)
+                await self.ws.send(msg)
+            self.last_send = time.time()
+
+    async def _keepalive(self):
+        """Scribe cierra la sesión tras ~15 s sin audio: entre intervenciones se le manda un poco de silencio."""
+        while not self.closed:
+            await asyncio.sleep(4)
+            if not self.in_activity and time.time() - self.last_send > 3.5 and self.ready.is_set():
+                try:
+                    await self._send(bytes(640))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("Scribe: silencio de mantenimiento: %s", e)
+
+    def set_langs(self, langs_list: list[list[str]]):
+        """Scribe detecta la lengua en cada commit dentro de SCRIBE_LANGS: no hace falta reconectar."""
+
+    async def start_act(self):
+        self.act += 1
+        self.in_activity = True
+        self.pushed = 0
+        return self.act
+
+    async def activity_start(self, preroll: bytes) -> int:
+        act = await self.start_act()
+        if preroll:
+            await self.push(preroll)
+        return act
+
+    async def push(self, pcm: bytes):
+        if self.in_activity and pcm:
+            self.pushed += len(pcm)
+            await self._send(pcm)
+
+    async def activity_end(self):
+        if not self.in_activity:
+            return
+        pad = max(640, self.MIN_COMMIT_BYTES - self.pushed)
+        self.in_activity = False
+        self.pending.append((self.act, time.perf_counter()))
+        try:
+            await self._send(bytes(pad), commit=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Scribe: commit fallido: %s", e)
+
+    async def close(self):
+        self.closed = True
+        for t in (self._rx, self._ka, self._reconnecting):
+            if t:
+                t.cancel()
+        if self.ws is not None:
+            try:
+                await self.ws.close()
+            except Exception:  # noqa: BLE001
+                pass
+
+
+EARS_KIND = os.environ.get("EARS", "gemini")
+
+
+def make_ears(on_interim, on_final, langs_list: list[list[str]]):
+    """El oído que toque según EARS=gemini|scribe (misma interfaz)."""
+    if EARS_KIND == "scribe" and _eleven_key():
+        return ScribeEars(on_interim, on_final, langs_list)
+    return Ears(on_interim, on_final, langs_list)
+
+
 async def _aexit(cm):
     try:
         await cm.__aexit__(None, None, None)
@@ -340,8 +536,13 @@ SYS_TTS = ("You are the voice of a clinic receptionist. Read aloud EXACTLY the t
 
 
 class Render:
-    def __init__(self, text: str):
+    """Una frase que se está sintetizando (o ya sintetizada). `fmt` dice qué llevan los trozos: «pcm24» (PCM de 16 bits
+    a 24 kHz) o «ulaw8» (µ-law a 8 kHz, lo que habla Twilio). Se fija antes del primer trozo y no cambia."""
+
+    def __init__(self, text: str, fmt: str = "pcm24"):
         self.text = text
+        self.fmt = fmt
+        self.source = ""
         self.chunks: list[bytes] = []
         self.done = False
         self.ok = True
@@ -422,7 +623,8 @@ class Mouth:
         except Exception:  # noqa: BLE001
             pass
 
-    def render(self, text: str) -> Render:
+    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24") -> Render:
+        """Gemini siempre da PCM de 24 kHz: `lang` y `fmt` se aceptan por compatibilidad (quien escucha mira r.fmt)."""
         k = self.key(text)
         r = self.renders.get(k)
         if r and (r.ok or not r.done):
@@ -520,28 +722,226 @@ class Mouth:
             except Exception:  # noqa: BLE001
                 pass
 
-    async def prewarm(self, texts: list[str], parallel: int = 3):
-        """Sintetiza de antemano las frases fijas (queda en disco para siempre)."""
-        sem = asyncio.Semaphore(parallel)
-
-        async def one(t):
-            async with sem:
-                r = self.render(t)
-                async for _ in r.stream():
-                    pass
-        await asyncio.gather(*[one(t) for t in texts], return_exceptions=True)
+    async def prewarm(self, texts: list, parallel: int = 3, fmt: str = "pcm24"):
+        """Sintetiza de antemano las frases fijas (queda en disco para siempre). Cada elemento: texto o (texto, lengua)."""
+        await _prewarm(self, texts, parallel, fmt)
 
 
-MOUTH = Mouth()
+async def _prewarm(mouth, texts: list, parallel: int, fmt: str):
+    sem = asyncio.Semaphore(parallel)
+
+    async def one(item):
+        t, lang = item if isinstance(item, tuple) else (item, None)
+        async with sem:
+            r = mouth.render(t, lang=lang, fmt=fmt)
+            async for _ in r.stream():
+                pass
+    await asyncio.gather(*[one(t) for t in texts], return_exceptions=True)
 
 
-def fixed_phrases() -> list[str]:
-    """Todas las frases de plantilla que no llevan huecos, en las cinco lenguas."""
+# ================================================================ boca de ElevenLabs
+
+def _eleven_key() -> str:
+    if os.environ.get("ELEVENLABS_API_KEY"):
+        return os.environ["ELEVENLABS_API_KEY"]
+    f = Path.home() / ".claude/.secrets/elevenlabs.env"
+    if f.exists():
+        for line in f.read_text().splitlines():
+            if line.startswith("ELEVENLABS_API_KEY="):
+                return line.split("=", 1)[1].strip()
+    return ""
+
+
+ELEVEN_API = "https://api.elevenlabs.io"
+# eleven_v3_conversational: tan rápido como flash_v2_5 (mediana ~150 ms al primer byte), más fiel leyendo cifras
+# deletreadas, y el único con catalán y gallego. Sin euskera: el euskera lo lee Gemini.
+ELEVEN_MODEL = os.environ.get("ELEVEN_MODEL", "eleven_v3_conversational")
+ELEVEN_MODEL_V3 = "eleven_v3_conversational"
+# Ninguna voz suena nativa a la vez en inglés y en castellano: Alice (británica, de serie) para el inglés y
+# Llanos Aguilar (peninsular, de la biblioteca, añadida a la cuenta) para castellano, catalán y gallego.
+ELEVEN_VOICES = {
+    "en": os.environ.get("ELEVEN_VOICE_EN", "Xb7hH8MSUJpSbSDYk0k2"),
+    "es": os.environ.get("ELEVEN_VOICE_ES", "PksrhvpHrGUgesnsmLTX"),
+}
+ELEVEN_VOICES["ca"] = os.environ.get("ELEVEN_VOICE_CA", ELEVEN_VOICES["es"])
+ELEVEN_VOICES["gl"] = os.environ.get("ELEVEN_VOICE_GL", ELEVEN_VOICES["es"])
+ELEVEN_TTFB_S = float(os.environ.get("ELEVEN_TTFB_S", "1.2"))
+ELEVEN_FORMATS = {"ulaw8": ("ulaw_8000", 8000), "pcm24": ("pcm_24000", 48000)}   # formato → (output_format, bytes/s)
+
+
+class ElevenMouth:
+    """Boca con el TTS en streaming de ElevenLabs. Misma interfaz que Mouth: render(text, lang, fmt) → Render, warm(),
+    prewarm(). La conexión HTTP se mantiene abierta (la primera petición en frío tarda ~1 s; en caliente, ~150 ms).
+    Si ElevenLabs falla o no da el primer byte en ELEVEN_TTFB_S, se arranca Gemini y habla el primero que suene.
+    Todo lo sintetizado entero queda en disco: la cuenta tiene un cupo de caracteres al mes."""
+
+    def __init__(self, fallback: Mouth, max_parallel: int = int(os.environ.get("ELEVEN_CONCURRENCY", "5"))):
+        self.fallback = fallback
+        self.renders: dict[str, Render] = {}
+        self.sem = asyncio.Semaphore(max_parallel)
+        self.key_ = _eleven_key()
+        self.enabled = bool(self.key_)
+        self.http: httpx.AsyncClient | None = None
+        self._keep: asyncio.Task | None = None
+        self.last_use = 0.0
+
+    def _client(self) -> httpx.AsyncClient:
+        if self.http is None:
+            self.http = httpx.AsyncClient(
+                base_url=ELEVEN_API, headers={"xi-api-key": self.key_},
+                timeout=httpx.Timeout(20.0, connect=5.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=8, keepalive_expiry=120))
+        return self.http
+
+    @staticmethod
+    def voice_model(lang: str | None) -> tuple[str, str]:
+        voice = ELEVEN_VOICES.get(lang or "en", ELEVEN_VOICES["en"])
+        model = ELEVEN_MODEL if lang in (None, "en", "es") or "v3" in ELEVEN_MODEL else ELEVEN_MODEL_V3
+        return voice, model
+
+    @staticmethod
+    def key(text: str, lang: str | None, fmt: str) -> str:
+        voice, model = ElevenMouth.voice_model(lang)
+        return hashlib.sha1(f"el|{model}|{voice}|{lang or ''}|{fmt}|{text}".encode()).hexdigest()[:20]
+
+    async def warm(self):
+        """Abre varias conexiones (en paralelo, para que queden varias en el pool) y las mantiene vivas."""
+        await asyncio.gather(self.fallback.warm(), self._ping(4), return_exceptions=True)
+        if self._keep is None:
+            self._keep = asyncio.create_task(self._keepalive())
+
+    async def _ping(self, n: int = 1):
+        if not self.enabled:
+            return
+        cli = self._client()
+
+        async def one():
+            try:
+                await cli.get("/v1/models", timeout=5)
+            except Exception as e:  # noqa: BLE001
+                log.warning("boca ElevenLabs: no se pudo abrir conexión: %s", e)
+        await asyncio.gather(*[one() for _ in range(n)])
+
+    async def _keepalive(self):
+        while True:
+            await asyncio.sleep(20)
+            if time.time() - self.last_use > 15:
+                await self._ping(2)
+
+    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24") -> Render:
+        if not self.enabled or lang not in (None, "en", "es", "ca", "gl") or fmt not in ELEVEN_FORMATS:
+            return self.fallback.render(text)
+        k = self.key(text, lang, fmt)
+        r = self.renders.get(k)
+        if r and (r.ok or not r.done):
+            return r
+        r = Render(text, fmt)
+        self.renders[k] = r
+        f = CACHE / f"{k}.{'ulaw' if fmt == 'ulaw8' else 'pcm'}"
+        if f.exists():
+            r.chunks, r.done, r.cached, r.first_ms, r.source = [f.read_bytes()], True, True, 0, "elevenlabs"
+            return r
+        asyncio.create_task(self._render(k, r, lang, fmt, f))
+        return r
+
+    async def _render(self, k: str, r: Render, lang: str | None, fmt: str, f: Path):
+        """ElevenLabs primero; si a los ELEVEN_TTFB_S no ha sonado (o ha fallado), también Gemini, y gana el primero
+        que da audio. El otro se cancela. Solo se guarda en disco lo de ElevenLabs que ha llegado entero."""
+        win: dict[str, str | None] = {"w": None}
+        first = asyncio.Event()
+
+        def sink(name: str, rfmt: str):
+            async def add(b: bytes):
+                if win["w"] is None:
+                    win["w"], r.fmt, r.source = name, rfmt, name
+                    first.set()
+                if win["w"] == name and b:
+                    await r.add(b)
+            return add
+
+        tasks = {"elevenlabs": asyncio.create_task(self._eleven(r.text, lang, fmt, sink("elevenlabs", fmt)))}
+        fw = asyncio.create_task(first.wait())
+        try:
+            await asyncio.wait([tasks["elevenlabs"], fw], timeout=ELEVEN_TTFB_S, return_when=asyncio.FIRST_COMPLETED)
+            if win["w"] is None:
+                el = tasks["elevenlabs"]
+                why = f"error: {el.exception()!r}" if el.done() and not el.cancelled() and el.exception() else                     ("sin audio" if el.done() else f"sin audio en {ELEVEN_TTFB_S:.1f} s")
+                log.warning("boca ElevenLabs (%s): suena Gemini: %r", why, r.text[:60])
+                tasks["gemini"] = asyncio.create_task(self._gemini(r.text, sink("gemini", "pcm24")))
+                while win["w"] is None and any(not t.done() for t in tasks.values()):
+                    await asyncio.wait([fw, *[t for t in tasks.values() if not t.done()]], return_when=asyncio.FIRST_COMPLETED)
+            if win["w"] is None:
+                await r.finish(ok=False)
+                return
+            for name, t in tasks.items():
+                if name != win["w"]:
+                    t.cancel()
+            try:
+                complete = await tasks[win["w"]]
+            except Exception as e:  # noqa: BLE001
+                log.warning("boca (%s) cortada a mitad: %s", win["w"], e)
+                complete = False
+            if win["w"] == "elevenlabs" and complete:
+                data = b"".join(r.chunks)
+                r.duration = round(len(data) / ELEVEN_FORMATS[fmt][1], 2)
+                expected = len(r.text) / 14
+                if 0.4 * expected <= r.duration <= 3 * expected + 2:
+                    f.write_bytes(data)
+                    with open(CACHE / "index.jsonl", "a") as fh:
+                        fh.write(json.dumps({"k": k, "text": r.text, "lang": lang, "fmt": fmt, "src": "elevenlabs"}, ensure_ascii=False) + "\n")
+                else:
+                    log.warning("boca ElevenLabs: duración rara (%.1f s para %.1f s esperados), no se guarda: %r", r.duration, expected, r.text)
+            await r.finish(ok=True)
+        finally:
+            fw.cancel()
+            if not r.done:
+                await r.finish(ok=bool(r.chunks))
+
+    async def _eleven(self, text: str, lang: str | None, fmt: str, add) -> bool:
+        voice, model = self.voice_model(lang)
+        params = {"output_format": ELEVEN_FORMATS[fmt][0]}
+        if "v3" not in model:
+            params["optimize_streaming_latency"] = "3"
+        body = {"text": text, "model_id": model}
+        if lang:
+            body["language_code"] = lang
+        async with self.sem:
+            self.last_use = time.time()
+            async with self._client().stream("POST", f"/v1/text-to-speech/{voice}/stream", params=params, json=body) as resp:
+                if resp.status_code != 200:
+                    raise RuntimeError(f"HTTP {resp.status_code}: {(await resp.aread())[:200]!r}")
+                odd = b""
+                async for chunk in resp.aiter_bytes():
+                    if fmt == "pcm24":           # PCM de 16 bits: nunca partir una muestra entre dos trozos
+                        chunk, odd = odd + chunk, b""
+                        if len(chunk) % 2:
+                            chunk, odd = chunk[:-1], chunk[-1:]
+                    await add(chunk)
+            self.last_use = time.time()
+        return True
+
+    async def _gemini(self, text: str, add) -> bool:
+        g = self.fallback.render(text)
+        async for c in g.stream():
+            await add(c)
+        return False   # lo de Gemini ya lo guarda su propia caché
+
+    async def prewarm(self, texts: list, parallel: int = 3, fmt: str = "pcm24"):
+        await _prewarm(self, texts, parallel, fmt)
+
+
+GEMINI_MOUTH = Mouth()
+MOUTH_KIND = os.environ.get("MOUTH", "elevenlabs")
+MOUTH = ElevenMouth(GEMINI_MOUTH) if MOUTH_KIND == "elevenlabs" and _eleven_key() else GEMINI_MOUTH
+
+
+def fixed_phrases() -> list[tuple[str, str]]:
+    """Todas las frases de plantilla que no llevan huecos, en las cinco lenguas, con su lengua (la boca elige voz por lengua)."""
     import nlg
     out = []
     for key, by_lang in nlg.T.items():
         for lang, variants in by_lang.items():
             for v in variants:
                 if "{" not in v:
-                    out.append(nlg.contract(lang, v))
+                    out.append((nlg.contract(lang, v), lang))
     return out

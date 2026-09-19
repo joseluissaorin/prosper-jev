@@ -35,7 +35,7 @@ _spec.loader.exec_module(demo)
 import ulaw  # noqa: E402
 from brain import API, Brain  # noqa: E402
 from jev import JEV  # noqa: E402
-from voice import MOUTH, Ears, fixed_phrases  # noqa: E402
+from voice import MOUTH, make_ears  # noqa: E402
 
 log = logging.getLogger("prosper")
 CALLS = HERE / "calls"
@@ -63,16 +63,17 @@ class Hub:
 HUB = Hub()
 
 
-def english_phrases() -> list[str]:
+def english_phrases() -> list[tuple[str, str]]:
+    """Las frases fijas del agente con su lengua (la boca elige voz y modelo por lengua)."""
     import say as S
     out = []
     for key, by_lang in S.T.items():
         if key == "reg_ask":
             for lang, d in by_lang.items():
-                out += list(d.values())
+                out += [(v, lang) for v in d.values()]
             continue
         for lang, vs in by_lang.items():
-            out += [v for v in vs if "{" not in v]
+            out += [(v, lang) for v in vs if "{" not in v]
     return out
 
 
@@ -88,7 +89,7 @@ async def prosper_vocabulary():
 @asynccontextmanager
 async def lifespan(app):
     await asyncio.gather(JEV.warm(), MOUTH.warm(), prosper_vocabulary(), return_exceptions=True)
-    asyncio.create_task(MOUTH.prewarm(english_phrases(), parallel=3))
+    asyncio.create_task(MOUTH.prewarm(english_phrases(), parallel=3, fmt=TwilioCall.AUDIO_FMT))
     yield
 
 
@@ -199,6 +200,7 @@ async def twilio(ws: WebSocket):
 
 class TwilioCall(demo.VoiceCall):
     """La misma orquestación de turnos que la demo, con el cerebro de Prosper y el cable de Twilio."""
+    AUDIO_FMT = "ulaw8"      # la boca da µ-law de 8 kHz directamente: sin remuestrear
 
     def __init__(self, ws: WebSocket):
         super().__init__(ws)
@@ -254,7 +256,7 @@ class TwilioCall(demo.VoiceCall):
         HUB.active[self.call_sid] = {"call_id": self.call_sid, "from_number": frm, "started": time.time()}
         await self.emit("call_started", call_id=self.call_sid, from_number=frm)
         # el saludo sale ya; la ficha de la línea y el oído se preparan en paralelo
-        self.ears = Ears(self.on_interim, self.on_final, [[], []])
+        self.ears = make_ears(self.on_interim, self.on_final, [[], []])
         begin = asyncio.create_task(self.call.begin())
         ears = asyncio.create_task(self.ears.start())
         try:
@@ -278,16 +280,18 @@ class TwilioCall(demo.VoiceCall):
         self.call.spoken(text)
         self.agent_text = text
         self.agent_start_t = time.time()
-        r = MOUTH.render(text)
+        r = self.render(text)
         await self.emit("agent", text=text, act=act, source=source, cached=r.cached or r.done, audio=True)
         first, buf, t_start, sent_s, wall0 = True, b"", None, 0.0, time.time()
+        gaps: list[int] = []
         async for chunk in r.stream():
             if first:
                 first = False
                 if self.t_speech_end:
                     await self.emit("latency", stage="fin de voz → primera palabra", ms=round((time.perf_counter() - self.t_speech_end) * 1000))
                     self.t_speech_end = None
-            buf += ulaw.pcm16_to_ulaw(ulaw.down_24k_to_8k(chunk))
+            # la boca de ElevenLabs ya da µ-law de 8 kHz; la de Gemini (o su respaldo), PCM de 24 kHz
+            buf += chunk if r.fmt == "ulaw8" else ulaw.pcm16_to_ulaw(ulaw.down_24k_to_8k(chunk))
             while len(buf) >= 160:
                 frame, buf = buf[:160], buf[160:]
                 if t_start is None:
@@ -296,12 +300,17 @@ class TwilioCall(demo.VoiceCall):
                 ahead = sent_s - (time.perf_counter() - t_start)
                 if ahead > 0.4:
                     await asyncio.sleep(ahead - 0.4)
+                elif ahead < -0.1:
+                    # la boca se ha quedado atrás: quien llama oye un hueco a mitad de frase
+                    gaps.append(round(-ahead * 1000))
+                    t_start -= ahead
                 await self.send_json({"event": "media", "streamSid": self.stream_sid, "media": {"payload": base64.b64encode(frame).decode()}})
                 sent_s += 0.02
                 self.speaking_until = wall0 + sent_s
         if buf:
             await self.send_json({"event": "media", "streamSid": self.stream_sid, "media": {"payload": base64.b64encode(buf).decode()}})
         await self.send_json({"event": "mark", "streamSid": self.stream_sid, "mark": {"name": act[:40] or "say"}})
+        await self.emit("voice", source=r.source or ("caché" if r.cached else ""), first_ms=r.first_ms, gaps=gaps, text=text[:80])
 
     async def maybe_barge(self, full: str, p):
         before = self.speak_task and not self.speak_task.done()
