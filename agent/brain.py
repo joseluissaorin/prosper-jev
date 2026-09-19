@@ -480,8 +480,18 @@ class Brain:
         et = self.extraction(self.id_text(text)) if self.needs_extraction(text) else None
         try:
             r = await jt
-        except Exception:  # noqa: BLE001
-            return P(text=text, raw={"act": {"type": "choice", "choice": "unclear", "confidence": 1.0, "probabilities": {}}}, ex={}, ms=-1)
+        except Exception as e:  # noqa: BLE001
+            # sin Jev el turno cae en «no le he entendido»: con una frase de verdad, pedir que la repita es peor que
+            # esperar otra vuelta de Jev (la especulación no reintenta: el turno definitivo lo hará)
+            r = None
+            if not spec and len(text.split()) >= 3:
+                try:
+                    r = await JEV.ask(state, jq)
+                except Exception:  # noqa: BLE001
+                    r = None
+            self._log("jev_error", error=type(e).__name__, retried=not spec and len(text.split()) >= 3, ok=r is not None)
+            if r is None:
+                return P(text=text, raw={"act": {"type": "choice", "choice": "unclear", "confidence": 1.0, "probabilities": {}}}, ex={}, ms=-1)
         if spec and et and not et.done():
             return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"], ex_task=et)
         # lectura determinista + lo que ya sabe Jev: solo se espera al LLM si hace falta algo que no cubren
@@ -652,11 +662,42 @@ class Brain:
         # la respuesta a una pregunta de datos (mal oída a veces: «Calf roping at all?») no es una petición fuera de ámbito
         answering = s.pending.startswith(("reg_", "identity", "which_", "not_found")) and act in ("provide_info", "unclear", "correct")
         a_question = act == "ask_question" or p.n("asks_question") >= 0.7
-        if oo and oo != "none" and oc >= 0.7 and not answering and (oo != "unrelated" or (s.pending in ("", "need", "anything_else") and not a_question)):
+        it0, ic0 = p.c("intent")
+        prev = s.ev.get("oos_kind")
+        thr = 0.7
+        # sin una gestión propia en marcha no hay nada que proteger de un falso positivo, y lo que no se declina va al
+        # Sistema 2, que improvisa («I can't confirm any appointments for Ignacio…» ya confirma el nombre; «I can't
+        # confirm that» a un comercial): umbral más bajo. Con una reserva en marcha, no: «book my mother's appointment»
+        # roza «datos de otro paciente» y es justo lo que hay que hacer.
+        own_task = s.intent in ("book", "reschedule", "cancel", "register") or (it0 in ("book", "reschedule", "cancel", "register") and ic0 >= 0.5)
+        if oo != "unrelated" and not own_task:
+            thr = 0.5
+            # un comercial disfrazado reparte a Jev entre «ventas», «instrucciones» y «datos de otro» y ninguna llega
+            # sola al umbral: cuenta la masa de todo lo que hay que declinar, y se declina por la más probable
+            probs = (p.raw.get("oos") or {}).get("probabilities") or {}
+            bad = {k: v for k, v in probs.items() if k not in ("none", "unrelated")}
+            if bad and sum(bad.values()) >= 0.6 and (oo == "none" or oc < thr):
+                oo, oc = max(bad, key=bad.get), round(sum(bad.values()), 2)
+        if prev and oo == prev:
+            thr = 0.4               # insiste en lo mismo con otras palabras
+        if oo and oo != "none" and oc >= thr and not answering and (oo != "unrelated" or (s.pending in ("", "need", "anything_else") and not a_question)):
             s.oos = "out_of_scope"
+            s.ev["oos_kind"] = oo
+            again = prev == oo
+            out.append(self.gate("límites", False, f"{oo} ({oc:.2f}){' otra vez' if again else ''}: se declina sin leer datos de nadie"))
+            if oo == "medical_advice":
+                # no se aconseja, pero se ofrece lo que sí se puede: una cita (y el síntoma queda para el triaje)
+                cp, cc = p.c("complaint")
+                if not s.specialty and cp and cp != "none" and cc >= 0.6 and COMPLAINTS[cp][1]:
+                    s.specialty = COMPLAINTS[cp][1]
+                    out.append(self._log("triage", complaint=cp, route=s.specialty))
+                s.pending = "offer_visit"
+                return out + [self._say("decline_again_medical" if again else "decline_medical")]
             s.pending = "anything_else"
-            out.append(self.gate("límites", False, f"{oo} ({oc:.2f}): se declina sin leer datos de nadie"))
-            return out + [self._say("decline"), self._say("anything_else")]
+            key = {"other_patient_data": "decline_other_patient", "sales": "decline_sales", "injection": "decline_injection"}.get(oo, "decline_unrelated")
+            if again:
+                key = "decline_again_other_patient" if oo == "other_patient_data" else "decline_again"
+            return out + [self._say(key), self._say("anything_else")]
         if s.pending == "anything_else" and act == "reject" and ac >= 0.6 and p.n("asks_question") < 0.5:
             return out + await self.goodbye()
 
@@ -664,12 +705,16 @@ class Brain:
         # algo NO cortan el turno: se acumulan como prefijo y después se atiende todo lo demás que haya dicho.
         pre_say: list[dict] = []
         greet = is_greeting(text)
-        if greet or p.n("checks_presence") >= 0.7:
-            if not s.intent and greet:
-                pre_say.append(self._text({"en": "Hello!", "es": "¡Hola!", "ca": "Hola!"}.get(s.lang, "Hello!"), "greet_back"))
-            elif not greet or s.intent:
-                pre_say.append(self._text({"en": "Yes, I'm here.", "es": "Sí, le escucho.", "ca": "Sí, l’escolto."}.get(s.lang, "Yes, I'm here."), "here"))
+        presence = p.n("checks_presence") >= 0.7
+        if greet and not s.intent:
+            # un «Hello.» tras nuestro saludo: una sola frase que devuelve el saludo y pregunta (un «Hello!» suelto,
+            # sintetizado aparte, suena a «Hello?», como si no le oyéramos)
+            return out + [self._say("greet_back")]
+        if greet or presence:
+            pre_say.append(self._say("still_here"))
         asked = (act == "ask_question" and ac >= 0.5) or p.n("asks_question") >= 0.7
+        if presence and len(text.split()) <= 6:
+            asked = False           # «¿sigue ahí?» ya está contestado; no es una pregunta para el Sistema 2
         topic = p.c("question_topic")[0]
         it0, ic0 = p.c("intent")
         request = it0 in ("book", "reschedule", "cancel", "register") and ic0 >= 0.7 and p.n("gives_info") >= 0.6
@@ -682,6 +727,8 @@ class Brain:
             asked = False
         if asked and offering and sched and topic not in ("site_hours", "weekend", "duration", "practical", "provider_specialty", "provider_where", "languages"):
             asked = False           # «¿no hay nada el sábado?» ante una oferta: es otra preferencia, no una pregunta
+        if asked and offering and act == "correct" and ac >= 0.7 and topic in ("other", "none", None):
+            asked = False           # «what I actually need is Thursday, could we look for that instead?»: corrige, no pregunta
         if asked and not greet:
             ans = await self.answer(text, p)
             if ans:
@@ -702,6 +749,15 @@ class Brain:
             return out + pre_say + await self.advance(reprompt=True)
 
         it, ic = p.c("intent")
+        # «No puedo aconsejarle, pero ¿quiere cita?» → «sí»: la negativa queda atrás y empieza una reserva
+        if s.pending == "offer_visit":
+            if (act == "confirm" and ac >= 0.6) or (it == "book" and ic >= 0.7):
+                out.append(self._log("new_task", intent="book", after="medical_advice"))
+                s.intent, s.pending, s.oos = "book", "", None
+                s.ev.pop("oos_kind", None)
+            elif act == "reject" and ac >= 0.6:
+                s.pending = "anything_else"
+                return out + pre_say + [self._say("anything_else")]
         # «¿Le doy de alta?» → «sí»: se empieza el alta; con datos nuevos, otro intento de identificarle
         if s.pending == "not_found":
             if (act == "confirm" and ac >= 0.6) or (it == "register" and ic >= 0.7):
@@ -732,6 +788,11 @@ class Brain:
         body = await self.absorb(text, p, act, ac)
         says = [o for o in body if o.get("kind") == "say"]
         logs = [o for o in body if o.get("kind") != "say"]
+        if offering and getattr(self, "_changed", None):
+            # había una oferta y el turno la ha cambiado (otro día, franja o sede): lo que el Sistema 2 haya improvisado
+            # sobre la «pregunta» sobra, la respuesta es la oferta nueva (sin oferta, «¿qué días pasa consulta allí?»
+            # también toca la sede y ahí la respuesta es lo único que hay)
+            pre_say = [o for o in pre_say if o.get("act") != "question"]
         if getattr(self, "_stop", False):
             self._stop = False
             return out + logs + pre_say + says
@@ -1032,11 +1093,18 @@ class Brain:
         s, ev = self.s, self.s.ev
         other = s.relation not in (None, "self")
         if ev.get("bad_id"):
-            ev.pop("bad_id")
-            s.id_tries += 1
-            s.pending = "identity"
-            if s.id_tries <= 2:
-                return [self._log("identity", step="letra del DNI no cuadra"), self._say("id_letter_bad")]
+            why = ev.pop("bad_id")
+            # «…my DNI is 947» y el turno se corta a mitad del dictado: no es una letra que no cuadra, es un número a
+            # medias. Si el nombre y otro dato (la línea, la fecha, el teléfono) ya bastan, se sigue sin pedir nada.
+            partial = "dígitos" in why
+            if partial and ev.get("name") and (s.line_matches or ev.get("dob") or ev.get("phone")):
+                self._log("identity", step=f"DNI a medias ({why}): se prueba con el nombre y lo demás")
+            else:
+                s.id_tries += 1
+                s.pending = "identity"
+                if s.id_tries <= 2:
+                    return [self._log("identity", step="DNI a medias" if partial else "letra del DNI no cuadra"),
+                            self._say("id_incomplete" if partial else "id_letter_bad")]
         name = ev.get("name")
         probes = []
         if ev.get("national_id"):
@@ -1542,9 +1610,10 @@ class Brain:
 
     def next_register(self) -> list[dict]:
         s, r = self.s, self.s.reg
-        if r.pop("_bad_id", None):
+        why = r.pop("_bad_id", None)
+        if why:
             s.pending = "reg_national_id"
-            return [self._say("id_letter_bad")]
+            return [self._say("id_incomplete" if "dígitos" in why else "id_letter_bad")]
         r = {k: v for k, v in r.items()}
         missing = [f for f in self.REG_FIELDS if (f != "surnames" and not r.get(f)) or (f == "surnames" and not (r.get("first_surname") and r.get("second_surname")))]
         if missing:
@@ -1672,10 +1741,20 @@ class Brain:
                  "providers": [{"name": p["name"], "specialty": p["specialty_name"], "languages": p["languages"], "sites": p["location_names"],
                                 "on_leave": p.get("leave")} for p in cat["providers"]],
                  "closure_days": cat["calendar"]["closure_days"]}
+        # el cruce especialidad × sede ya hecho: Flash-Lite, cruzándolo solo, decía que solo Centro y Norte ven niños
+        # (el Dr. Ocaña también pasa consulta en Sur) o ponía a un pediatra entre los médicos de familia
+        by_spec: dict = {}
+        for pr in cat["providers"]:
+            for site in pr["location_names"]:
+                by_spec.setdefault(pr["specialty_name"], {}).setdefault(site, []).append(pr["name"])
+        facts["specialty_by_site"] = by_spec
         cfg = types.GenerateContentConfig(
             system_instruction=("You are a clinic receptionist on the phone. Answer in one or two short spoken sentences, in "
                                 + {"en": "English", "es": "Spanish", "ca": "Catalan"}[self.s.lang] +
                                 ", using ONLY these facts. Never guess: if the facts don't say it, say you can't confirm. No lists or markdown. "
+                                "Never say or hint whether a named person is or is not a patient, is on file, or has an appointment, and "
+                                "never repeat that name back; only if the caller asks for another person's details or appointments, say you "
+                                "can't share information about other patients (otherwise do not mention privacy at all). "
                                 "Do not greet or say goodbye.\nFACTS:\n" + json.dumps(facts, ensure_ascii=False)),
             temperature=0, max_output_tokens=200, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
         try:
