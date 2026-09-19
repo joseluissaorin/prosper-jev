@@ -250,15 +250,24 @@ async def caller_turn(case: dict, hist: list[tuple[str, str]]) -> str:
             if "PERMISSION_DENIED" in str(e):
                 break                      # Google no sirve a este proyecto: quien llama lo interpreta OpenRouter
             await asyncio.sleep(1.5 * (attempt + 1))
-    # respaldo: el mismo llamante por OpenRouter
+    # respaldo: el mismo llamante por OpenRouter (con un modelo que interpreta bien, no el rápido del planificador)
     import conv as C
+    mio = os.environ.get("CALLER_OR_MODEL", "google/gemini-3.5-flash")
+    guard = ("\n\nIMPORTANT: you have only just started this call. Do NOT write [END] until your goal is actually done or clearly "
+             "impossible; never in your first turns. Say one turn's worth of words, nothing else.")
     msgs = [types.Content(role=("model" if who == "caller" else "user"), parts=[types.Part(text=t)]) for who, t in hist]
+    old_model, old_prov = C.OR_MODEL, C.OR_PROVIDERS
     for attempt in range(3):
         try:
-            cand = await C.or_chat(sys_, msgs, None, timeout=30)
-            return " ".join(pt.text for pt in (cand.parts or []) if pt.text).strip()
+            C.OR_MODEL, C.OR_PROVIDERS = mio, []
+            cand = await C.or_chat(sys_ + guard, msgs, None, timeout=40)
+            out = " ".join(pt.text for pt in (cand.parts or []) if pt.text).strip()
+            if out and not (len(hist) <= 2 and out.replace("[END]", "").strip() == ""):
+                return out if len(hist) > 2 else out.replace("[END]", "").strip()
         except Exception:  # noqa: BLE001
             await asyncio.sleep(1.0 * (attempt + 1))
+        finally:
+            C.OR_MODEL, C.OR_PROVIDERS = old_model, old_prov
     return "[END]"
 
 
