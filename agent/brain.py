@@ -473,11 +473,12 @@ class Brain:
         if lang:
             # sabemos cómo habla: saludo en su idioma (sin fijarlo del todo: si habla otro, el espejo manda)
             self.s.lang = lang
-            return [self._log("greet_lang", lang=lang, why=why),
-                    self._say("greet", daypart=daypart, clinic=clinic, saludo_es=SALUDO["es"][daypart], saludo_ca=SALUDO["ca"][daypart])]
+            self._log("greet_lang", lang=lang, why=why)                      # queda en la traza; opening() solo devuelve frases
+            return [self._say("greet", daypart=daypart, clinic=clinic, saludo_es=SALUDO["es"][daypart], saludo_ca=SALUDO["ca"][daypart])]
         # no lo sabemos: saludo bilingüe mínimo y a escuchar; sus primeras palabras deciden el idioma
         es = SALUDO["es"][daypart]
-        return [self._log("greet_lang", lang="es+en", why=why), self._text(f"{clinic}, {es}, good {daypart}.", "greet")]
+        self._log("greet_lang", lang="es+en", why=why)
+        return [self._text(f"{clinic}, {es}, good {daypart}.", "greet")]
 
     # ------------------------------------------------------------ percepción
 
