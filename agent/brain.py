@@ -390,6 +390,8 @@ class Brain:
             "provider": choice("Which provider does the caller name in `caller`? The name may be misheard: match by sound "
                                "(and by specialty). Pick 'none' if no provider is named, 'unknown' only if it sounds like none of them.",
                                {p["id"]: f"{p['name']} ({p['specialty_name']})" for p in c["providers"]} | {"none": "No provider named", "unknown": "Names a doctor not on this list"}),
+            "accepts_offer": noul("Does `caller` accept the appointment the receptionist just offered in `receptionist_last` "
+                                  "(even if they also ask something else)? Answer no if they reject it, ask for a different time, day or site, or if nothing was offered."),
             "provider_sound": choice("If `caller` names a doctor, which of these surnames sounds most like the name they said? "
                                      "Pick 'none' if no doctor is named.",
                                      {p["id"]: p["name"].split()[-1] for p in c["providers"]} | {"none": "No doctor named"}),
@@ -477,7 +479,16 @@ class Brain:
         # idioma: un nombre suelto no es evidencia; se fija con una frase y se puede cambiar a mitad de llamada
         lg, lc = p.c("lang")
         words = len(text.split())
-        if lg in ("en", "es", "ca") and ((not s.lang_locked and lc >= 0.7 and words >= 4) or (s.lang_locked and lg != s.lang and lc >= 0.9 and words >= 6)):
+        # a mitad de llamada, cambiar exige pedirlo o DOS turnos seguidos en el otro idioma: «Ay, genial, sí, sí,
+        # reserve that one for me» no es pasarse al español
+        asks = bool(re_findall(r"puc parlar|podem parlar|parlar en|en catal|in catalan|in spanish|in english|en espanol|en castellano|hablar en|parlem", fold(text)))
+        if s.lang_locked and lg != s.lang and lc >= 0.9 and words >= 6 and not asks:
+            if s.ev.get("lang_vote") != lg:
+                s.ev["lang_vote"] = lg
+                lg = s.lang                                  # un voto; el siguiente turno decide
+        elif s.lang_locked and lg == s.lang:
+            s.ev.pop("lang_vote", None)
+        if lg in ("en", "es", "ca") and ((not s.lang_locked and lc >= 0.7 and words >= 4) or (s.lang_locked and lg != s.lang and lc >= 0.9 and (words >= 6 or asks))):
             if lg != s.lang or not s.lang_locked:
                 out.append(self._log("lang", lang=lg, conf=lc, switched=s.lang_locked))
             s.lang, s.lang_locked = lg, True
@@ -626,7 +637,7 @@ class Brain:
             s.site, s.site_unsure = best[0], None       # contestando a «¿qué sede?»: la más probable
         elif st and st != "none" and stc >= 0.6:
             s.site, s.site_unsure = st, None
-        elif best[0] and best[1] >= 0.3 and best[0] != s.site:
+        elif best[0] and best[1] >= 0.3 and best[0] != s.site and s.pending != "confirm_book" and self.mentions_site(text):
             # suena a una sede pero no está claro («R&L SORE», «it has to be sir»): se preguntará
             s.site_unsure = best[0]
             out.append(self._log("site_unsure", candidate=best[0], p=round(best[1], 2)))
@@ -679,10 +690,16 @@ class Brain:
             out += self.absorb_register(p)
         # confirmaciones
         if s.pending == "confirm_book" and s.offer:
-            if act == "confirm" and ac >= 0.8:
+            accepts = p.n("accepts_offer")
+            if (act == "confirm" and ac >= 0.8) or (accepts >= 0.8 and act not in ("reject", "correct")):
                 out += await self.commit_offer()
+                if act == "ask_question" and p.n("offscript") >= 0.5:
+                    # «sí, y ¿por qué entrada?»: reservado, y se contesta la pregunta
+                    ans = await self.answer_question(text)
+                    out.append(self._log("system2", question=text, answer=ans))
+                    out.append(self._text(ans, "question"))
                 self._stop = True
-            elif act in ("reject", "correct") or p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"):
+            elif act in ("reject", "correct") or (accepts < 0.3 and (p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"))):
                 sl = s.offer["slot"]
                 s.rejected = getattr(s, "rejected", []) + [(sl["provider_id"], sl["start_time"])]
                 s.offer = None
@@ -754,7 +771,7 @@ class Brain:
 
     async def advance(self, reprompt: bool = False) -> list[dict]:
         s = self.s
-        if s.pending == "anything_else" and not reprompt:
+        if s.pending == "anything_else" and (not reprompt or s.submitted):
             return [self._say("anything_else")]
         if s.intent is None or s.intent == "info":
             s.pending = "need"
@@ -1129,6 +1146,13 @@ class Brain:
     REG_FIELDS = ["given_name", "surnames", "national_id", "date_of_birth", "phone", "email", "insurer"]
 
     # ------------------------------------------------------------ cifras: segunda opinión
+
+    def mentions_site(self, text: str) -> bool:
+        """¿Dice algo que suene a una sede («R&L SORE», «Arenal, sir»)? Sin esto, una pregunta cualquiera
+        (la entrada, la planta) dispersaba la probabilidad de sede y se preguntaba «¿qué sede?» sin motivo."""
+        toks = [t for l in (self.catalog or {}).get("locations", []) for t in fold(l["name"]).split()] or ["arenal", "centro", "norte", "sur"]
+        ws = "".join(ch if ch.isalnum() else " " for ch in fold(text)).split()
+        return any(difflib.SequenceMatcher(None, w, t).ratio() >= 0.6 for w in ws if w not in ("sure", "so", "sorry") for t in toks)
 
     def sounds_like(self, p: P) -> str | None:
         """Un médico «desconocido» que suena como uno de la clínica DE LA ESPECIALIDAD pedida («Dra. Glacius» de
