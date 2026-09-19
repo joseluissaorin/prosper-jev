@@ -27,6 +27,16 @@
   <p class="kicker" id="kicker">Sin llamada</p>
   <h1 class="frase" id="frase">La arena espera a la próxima llamada.</h1>
   <div class="dialogo" id="dialogo" aria-live="polite"></div>
+  <section class="llamar" id="llamar" hidden aria-label="Llamar a la recepción">
+    <button type="button" class="btn-llamar" id="btn-llamar">Llamar</button>
+    <div class="llamar-info">
+      <p class="llamar-como">Llamar como</p>
+      <div class="fichas" id="fichas"></div>
+      <p class="ficha" id="ficha"></p>
+      <div class="nivel" aria-hidden="true"><span id="nivel"></span></div>
+      <p class="aviso">Mejor con auriculares. Llama a la clínica de pruebas: nada llega a la agenda real.</p>
+    </div>
+  </section>
   <ul class="cifras" id="cifras">
     <li><span class="k">Jev</span><span class="v" id="c-jev">—</span></li>
     <li><span class="k">respuesta</span><span class="v" id="c-resp">—</span></li>
@@ -40,5 +50,6 @@
 <noscript><p class="nojs">La arena necesita JavaScript.</p></noscript>
 <script src="config.js"></script>
 <script src="app.js"></script>
+<script src="llamar.js"></script>
 </body>
 </html>

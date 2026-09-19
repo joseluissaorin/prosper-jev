@@ -53,6 +53,30 @@ body { font: 15px/1.5 var(--sans); overflow: hidden; -webkit-font-smoothing: ant
 .dialogo .llama { font-style: italic; }
 .dialogo .parcial { color: var(--gris); }
 
+.llamar { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; margin: 0 0 12px; }
+.llamar[hidden] { display: none; }
+.btn-llamar {
+  width: 64px; height: 64px; border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--tinta); color: var(--papel); font: 600 12px/1 var(--sans); letter-spacing: .04em;
+  box-shadow: 0 6px 18px rgba(42, 36, 28, .18); transition: transform .12s, background .2s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-llamar:active { transform: scale(.95); }
+.btn-llamar:disabled { opacity: .6; }
+.llamar.en-llamada .btn-llamar { background: var(--rojo); }
+.llamar-info { min-width: 0; }
+.llamar-como { margin: 2px 0 6px; font: 600 10.5px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--gris); }
+.fichas { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.fichas::-webkit-scrollbar { display: none; }
+.fichas button { flex: none; font: 500 12px/1 var(--sans); color: var(--gris); background: transparent;
+  border: 1px solid var(--linea); border-radius: 999px; padding: 7px 10px; }
+.fichas button.activa { color: var(--tinta); border-color: var(--tinta); }
+.llamar.en-llamada .fichas button:not(.activa) { opacity: .35; }
+.ficha { margin: 6px 0 4px; font: italic 400 14px/1.35 var(--serif); color: var(--tinta); }
+.nivel { height: 2px; background: var(--linea); overflow: hidden; margin: 4px 0; }
+.nivel span { display: block; height: 100%; background: var(--azul); transform-origin: left; transform: scaleX(0); transition: transform .06s linear; }
+.aviso { margin: 4px 0 0; font: 400 11px/1.35 var(--sans); color: var(--gris); }
+
 .cifras { list-style: none; margin: 0 0 10px; padding: 10px 0 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; border-top: 1px solid var(--linea); }
 .cifras li { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .cifras .k { font: 500 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--gris); }
@@ -64,6 +88,7 @@ body { font: 15px/1.5 var(--sans); overflow: hidden; -webkit-font-smoothing: ant
   border: 1px solid var(--linea); border-radius: 999px; padding: 6px 10px; }
 .llamadas button.activa { color: var(--tinta); border-color: var(--tinta); }
 
+.con-llamada .pie, .con-llamada .llamadas { display: none; }
 .pie { margin: 10px 0 0; font: 400 11.5px/1.4 var(--sans); color: var(--gris); }
 .nojs { position: fixed; top: 40%; width: 100%; text-align: center; font: 20px var(--serif); }
 

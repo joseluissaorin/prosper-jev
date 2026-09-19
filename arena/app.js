@@ -133,7 +133,36 @@
   }
 
   const waves = [];
-  function ripple(strength = 1) { if (!REDUCED) waves.push({ t0: performance.now(), s: strength }); }
+  function ripple(strength = 1, x = null, y = null) {
+    if (REDUCED) return;
+    const { cx, cy } = center();
+    waves.push({ t0: performance.now(), s: strength, x: x ?? cx, y: y ?? cy });
+  }
+
+  // ------------------------------------------------------------------ el dedo y el cursor en la arena
+  // Pasar aparta los granos (más cuanto más rápido); un toque lanza una onda desde ahí; mantener pulsado los recoge.
+  const ptr = { x: -1e4, y: -1e4, vx: 0, vy: 0, on: false, down: false, t: 0, hold: 0 };
+  function mover(e) {
+    const now = performance.now(), dt = Math.max(8, now - ptr.t);
+    if (ptr.on) { ptr.vx = (e.clientX - ptr.x) / dt * 16; ptr.vy = (e.clientY - ptr.y) / dt * 16; }
+    ptr.x = e.clientX; ptr.y = e.clientY; ptr.t = now; ptr.on = true;
+  }
+  const sobreArena = (e) => !(e.target.closest && e.target.closest(".sheet, .top"));
+  addEventListener("pointermove", (e) => { if (sobreArena(e) || ptr.down) mover(e); else ptr.on = false; }, { passive: true });
+  addEventListener("pointerdown", (e) => {
+    if (!sobreArena(e)) return;
+    mover(e); ptr.down = true; ptr.hold = performance.now();
+    ripple(0.9, e.clientX, e.clientY);
+  }, { passive: true });
+  const soltar = (e) => {
+    if (!ptr.down) return;
+    if (performance.now() - ptr.hold > 350) ripple(1.3, ptr.x, ptr.y);   // lo recogido se reparte al soltar
+    ptr.down = false;
+    if (e.pointerType !== "mouse") { ptr.on = false; ptr.x = ptr.y = -1e4; }
+  };
+  addEventListener("pointerup", soltar, { passive: true });
+  addEventListener("pointercancel", soltar, { passive: true });
+  addEventListener("pointerleave", () => { ptr.on = false; ptr.x = ptr.y = -1e4; });
 
   // ------------------------------------------------------------------ bucle
   let last = performance.now();
@@ -144,6 +173,7 @@
     const cfg = SHAPE[state.shape] || SHAPE.reposo;
     const loose = cfg.loose + state.energy * 0.6, k = cfg.k;
     state.energy *= 0.94;
+    ptr.vx *= 0.85; ptr.vy *= 0.85;
     const { cx, cy } = center();
     for (let w = waves.length - 1; w >= 0; w--) if (now - waves[w].t0 > 1400) waves.splice(w, 1);
     for (let i = 0; i < N; i++) {
@@ -152,9 +182,21 @@
         ax += loose * 0.35 * noise(X[i] * 0.01, Y[i] * 0.01, t + i * 0.0007);
         ay += loose * 0.35 * noise(Y[i] * 0.01, X[i] * 0.01, t * 1.1 - i * 0.0005);
       }
-      for (const wv of waves) {                              // la voz del agente empuja hacia fuera
+      if (ptr.on) {                                          // el dedo aparta la arena, o la recoge si mantiene pulsado
+        const dx = X[i] - ptr.x, dy = Y[i] - ptr.y, d2 = dx * dx + dy * dy;
+        const RAD = ptr.down ? 110 : 70;
+        if (d2 < RAD * RAD) {
+          const d = Math.sqrt(d2) + 1e-3, fall = 1 - d / RAD;
+          if (ptr.down && performance.now() - ptr.hold > 350) { ax -= (dx / d) * fall * 1.4; ay -= (dy / d) * fall * 1.4; }
+          else {
+            const sp = Math.min(3, 0.6 + Math.hypot(ptr.vx, ptr.vy) * 0.25);
+            ax += (dx / d) * fall * sp + ptr.vx * fall * 0.08; ay += (dy / d) * fall * sp + ptr.vy * fall * 0.08;
+          }
+        }
+      }
+      for (const wv of waves) {                              // ondas: la voz del agente, o un toque
         const age = (now - wv.t0) / 1000, front = age * Math.max(W, H) * 0.55;
-        const dx = X[i] - cx, dy = Y[i] - cy, d = Math.hypot(dx, dy) + 1e-3;
+        const dx = X[i] - wv.x, dy = Y[i] - wv.y, d = Math.hypot(dx, dy) + 1e-3;
         const g = Math.exp(-((d - front) ** 2) / 1800) * 0.9 * wv.s * (1 - age / 1.4);
         ax += (dx / d) * g; ay += (dy / d) * g;
       }
@@ -300,7 +342,7 @@
     if (!llamadas.has(id)) { llamadas.set(id, []); }
     llamadas.get(id).push(e);
     if (llamadas.size > 12) llamadas.delete(llamadas.keys().next().value);
-    if (e.type === "call_started" || siguiendo === null) { siguiendo = id; pintarLlamadas(); }
+    if ((e.type === "call_started" && !soloEsta) || siguiendo === null) { siguiendo = id; pintarLlamadas(); }
     if (id === siguiendo) onEvent(e);
   }
 
@@ -342,6 +384,20 @@
     if (demoTimer) clearTimeout(demoTimer);
     if (modo === "demo") { if (!directo()) demo(); } else demo();
   });
+
+  // la llamada propia (llamar.js): se sigue su monitor, el de la instancia local
+  let soloEsta = null;
+  window.ARENA = {
+    seguirLlamada(monUrl, token, sid) {
+      if (demoTimer) clearTimeout(demoTimer);
+      modo = "llamada"; soloEsta = sid; llamadas.clear(); siguiendo = sid;
+      if (ws) { try { ws.onclose = null; ws.close(); } catch {} }
+      ws = new WebSocket(monUrl + (token ? (monUrl.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(token) : ""));
+      ws.onmessage = (m) => { try { const e = JSON.parse(m.data); if ((e.call_id || "") === soloEsta) recibir(e); } catch {} };
+      frase("Llamando a la recepción…", "Tu llamada"); $("dot").className = "dot vivo";
+      $("mode").textContent = "Ver demostración";
+    },
+  };
 
   // ------------------------------------------------------------------ arranque
   addEventListener("resize", resize);
