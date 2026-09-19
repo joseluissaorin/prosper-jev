@@ -254,14 +254,15 @@ class Conv:
         await self.cat()
         state = {"receptionist_last": self.s.last_agent, "recent_turns": self.s.history[-6:], "caller": text,
                  "note": "`caller` is an automatic transcription of a phone call; names may be misheard."}
+        qs = self.jev_questions()
         try:
-            try:
-                r = await JEV.ask(state, self.jev_questions())
-            except Exception:  # noqa: BLE001
-                r = await JEV.ask(state, self.jev_questions())
-        except Exception:  # noqa: BLE001
-            return P(text=text, raw={"act": {"type": "choice", "choice": "provide_info", "confidence": 0.5, "probabilities": {}}}, ms=-1)
-        return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"])
+            r = await JEV.ask(state, qs)
+            return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"])
+        except Exception as e:  # noqa: BLE001
+            # Jev caído (sin créditos, 5xx…): el mismo juicio con Flash-Lite, más lento pero seguro; nunca a ciegas
+            self._log("jev_down", error=str(e)[:120])
+            raw, ms = await fallback_judge(state, qs)
+            return P(text=text, raw=raw, ms=ms, hedged=True)
 
     # ------------------------------------------------------------ turno
 
@@ -1060,6 +1061,43 @@ CLINIC FACTS
 
 
 # ================================================================ utilidades
+
+async def fallback_judge(state: dict, qs: dict) -> tuple[dict, int]:
+    """Respaldo del Sistema 1: las mismas preguntas (choice/noul) a Flash-Lite con salida estructurada. Devuelve las
+    respuestas con la forma de Jev ({type, choice, confidence, probabilities} o {type, noul})."""
+    t0 = time.perf_counter()
+    props, lines = {}, []
+    for k, q in qs.items():
+        if q["type"] == "choice":
+            opts = list(q["criteria"].keys())
+            props[k] = {"type": "string", "enum": opts}
+            desc = "; ".join(f"{o}: {d}" if d else o for o, d in q["criteria"].items())
+            lines.append(f"- {k} (choose one of: {desc}): {q['instructions']}")
+        else:
+            props[k] = {"type": "number"}
+            lines.append(f"- {k} (probability 0 to 1): {q['instructions']}")
+    prompt = ("You judge one turn of a phone call to a clinic receptionist. State:\n" + json.dumps(state, ensure_ascii=False)
+              + "\n\nAnswer every question:\n" + "\n".join(lines))
+    cfg = types.GenerateContentConfig(response_mime_type="application/json", temperature=0,
+                                      response_schema={"type": "object", "properties": props, "required": list(props)})
+    raw = {}
+    try:
+        r = await asyncio.wait_for(GEMINI.aio.models.generate_content(model=PLANNER_MODEL, contents=prompt, config=cfg), timeout=5)
+        js = json.loads(r.text or "{}")
+    except Exception:  # noqa: BLE001
+        js = {}
+    for k, q in qs.items():
+        v = js.get(k)
+        if q["type"] == "choice":
+            ch = v if v in q["criteria"] else ("provide_info" if k == "act" else ("none" if "none" in q["criteria"] else list(q["criteria"])[-1]))
+            raw[k] = {"type": "choice", "choice": ch, "confidence": 0.85 if v in q["criteria"] else 0.4, "probabilities": {ch: 0.85}}
+        else:
+            try:
+                raw[k] = {"type": "noul", "noul": max(0.0, min(1.0, float(v)))}
+            except (TypeError, ValueError):
+                raw[k] = {"type": "noul", "noul": 0.5 if k == "finished" else 0.0}
+    return raw, round((time.perf_counter() - t0) * 1000)
+
 
 def _spoken_email(em: str) -> str:
     return (em.replace("_", " underscore ").replace("-", " dash ").replace(".", " dot ").replace("@", " at ")).replace("  ", " ").strip()
