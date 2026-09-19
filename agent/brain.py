@@ -739,8 +739,16 @@ class Brain:
             # otro idioma (francés, alemán, árabe…): la política compone en inglés y cada frase se traduce al hablar
             s.speak_lang, s.lang, s.lang_locked = lg, "en", True
             out.append(self._log("lang", lang=lg, conf=lc, switched=True, via="traducción"))
-        elif lg in ("en", "es", "ca") and lc >= 0.8 and words >= 4 and getattr(s, "speak_lang", None):
-            s.speak_lang = None                      # vuelve a un idioma propio
+        elif lg in ("en", "es", "ca") and lc >= 0.9 and words >= 5 and getattr(s, "speak_lang", None):
+            # volver a un idioma propio exige DOS turnos seguidos: «Je m'appelle Mario García López» no es español
+            if s.ev.get("lang_back") == lg:
+                s.speak_lang = None
+                s.ev.pop("lang_back", None)
+            else:
+                s.ev["lang_back"] = lg
+                lg = None
+        elif getattr(s, "speak_lang", None) and lg == s.speak_lang:
+            s.ev.pop("lang_back", None)
         if lg in ("en", "es", "ca") and ((not s.lang_locked and lc >= 0.7 and words >= 4) or (s.lang_locked and lg != s.lang and lc >= 0.9 and (words >= 6 or asks))):
             if lg != s.lang or not s.lang_locked:
                 out.append(self._log("lang", lang=lg, conf=lc, switched=s.lang_locked))
