@@ -280,6 +280,9 @@
       }
     } else if (tipo === "agent") {
       linea("recepcion", e.text); ripple(1);
+      if (state.shape === "busca" && /\d{1,2}(:\d{2})?\s*(am|pm|h)|\b\d{1,2}:\d{2}\b|\?/i.test(e.text || "")) {
+        setShape("ofrece"); frase("Propone un hueco.", "Propuesta");
+      }
     } else if (tipo === "latency" && e.stage && e.stage.startsWith("fin de voz")) {
       cifra("c-resp", `${(e.ms / 1000).toFixed(2).replace(".", ",")} s`);
     } else if (tipo === "trace" && e.event) {
@@ -293,8 +296,35 @@
     }
   }
 
+  // v2 (planificador con herramientas): cada herramienta mueve la arena
+  const TOOL = {
+    identify_patient: (ok) => ok ? ["identifica", "Ficha encontrada.", "Identidad"] : [null, "Comprobando quién es…", "Identidad"],
+    list_appointments: () => ["identifica", "Mirando sus citas.", "Citas"],
+    find_slots: () => ["busca", "Mirando la agenda.", "Agenda"],
+    prepare_cancellation: () => ["ofrece", "Prepara la anulación y la lee antes de hacerla.", "Propuesta"],
+    prepare_registration: () => ["ofrece", "Lee los datos del alta antes de hacerla.", "Propuesta"],
+    confirm_booking: (ok) => ok ? ["hecho", "Cita reservada.", "Hecho"] : [null, "Aún no: falta un «sí» a esa cita.", "Puerta"],
+    confirm_cancellation: (ok) => ok ? ["hecho", "Cita anulada.", "Hecho"] : [null, "Aún no: falta un «sí» a esa anulación.", "Puerta"],
+    confirm_registration: (ok) => ok ? ["hecho", "Alta hecha.", "Hecho"] : [null, "Aún no: falta un «sí» a los datos.", "Puerta"],
+    nearest_site: () => [null, "Busca la sede más cercana.", "Sedes"],
+    clinic_info: () => [null, "Lo mira en el catálogo de la clínica.", "Catálogo"],
+    decline: () => ["declina", "Eso no se puede hacer: <em>se declina</em>.", "Límites"],
+  };
+  const fallo = (r) => /error|not found|blocked|denied|refus|no se|missing|required|not allowed|needs/i.test(String(r || ""));
+
   function traza(ev) {
     const k = ev.kind;
+    if (k === "tool" && TOOL[ev.name]) {
+      const [forma, texto, kicker] = TOOL[ev.name](!fallo(ev.result));
+      if (forma) setShape(forma, forma === "identifica" ? 1600 : 0, forma === "identifica" ? "escucha" : null);
+      frase(texto, kicker);
+      return;
+    }
+    if (k === "gate" && ev.name === "puerta" && !ev.ok) { frase("La puerta espera un «sí» claro antes de escribir en la agenda.", "Seguridad"); return; }
+    if (k === "gate" && ev.name === "negativa") { setShape("declina", 2500, "escucha"); frase("Eso no se puede hacer: <em>se declina</em>.", "Límites"); return; }
+    if (k === "declared") { frase(`Declarado: <em>${esc((ev.actions || []).join(", ").toLowerCase() || "sin acción")}</em>.`, "Hecho"); return; }
+    if (k === "jev_down") { frase("Jev no responde: Flash-Lite hace de Sistema 1 mientras tanto.", "Respaldo"); return; }
+    if (k === "speculation_reused") { frase("La respuesta ya estaba pensada mientras hablaba.", "Especulación"); return; }
     if (k === "gate" && ev.name === "identidad" && ev.ok) {
       setShape("identifica", 1600, "escucha");
       const quien = (ev.detail || "").split("(")[0].replace(/^P\d+\s*/, "").trim();
