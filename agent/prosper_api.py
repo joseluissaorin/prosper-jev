@@ -156,6 +156,12 @@ def normalize_national_id(raw: str) -> tuple[str | None, str]:
     digits = "".join(c for c in body if c.isdigit())
     letters = [c for c in body if c.isalpha()]
     need = 7 if nie else 8
+    if len(digits) == 7 and letters:
+        # NIE con la letra inicial perdida o mal oída («Y, 1234567, X» → «1234567X» o «X1234567X»): si solo un
+        # prefijo cuadra con la letra de control, es ese. La lectura final lo confirma con quien llama.
+        fits = [p for p in "XYZ" if dni_letter(str("XYZ".index(p)) + digits) == letters[-1]]
+        if len(fits) == 1 and not (nie and fits[0] == s[0]):
+            return fits[0] + digits + letters[-1], f"prefijo del NIE deducido: {fits[0]}"
     if len(digits) != need:
         return None, f"{len(digits)} dígitos (hacen falta {need})"
     num = str("XYZ".index(s[0])) + digits if nie else digits

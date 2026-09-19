@@ -574,7 +574,9 @@ class Brain:
             out.append(self._say("ask_which_plan"))
             self._stop = True
             return out
-        if s.pending == "other_plan" and act == "reject" and ac >= 0.6:
+        # «no, solo ese» (aunque diga algo más, p. ej. una sede): se rechaza por la cobertura, sin volver a buscar
+        new_plan = ins and ins != "none" and ic >= 0.6 and ins in s.plans[1:]
+        if s.pending == "other_plan" and not new_plan and ((act == "reject" and ac >= 0.6) or act not in ("confirm", "question")):
             out += await self.refuse(s.refusal or "specialty_not_covered")
             self._stop = True
             return out

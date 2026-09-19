@@ -176,6 +176,7 @@ class VoiceCall:
         self.probe_lang: tuple | None = None
         self.probe_busy = False
         self.answered_text = ""
+        self.answered_act = -1           # intervención del transcriptor que estaba abierta al responder
         self.turn_t0: float | None = None
         self.last_response_t = 0.0
         self.undo: tuple | None = None
@@ -352,10 +353,13 @@ class VoiceCall:
             if self.first_turn and tag == "o1":
                 self.spawn(self.probe_check(text))
             return
-        if self.answered_text and self.contained(text, self.answered_text):
+        # Un definitivo tardío de lo ya respondido se ignora; pero si es de una intervención POSTERIOR, es que
+        # quien llama lo ha repetido (p. ej. porque se lo pedimos) y hay que contestarle.
+        same = act < 0 or act <= self.answered_act
+        if self.answered_text and same and self.contained(text, self.answered_text):
             await self.emit("log", msg=f"definitivo que ya estaba respondido: «{text}»")
             return
-        if self.answered_text and _k(self.answered_text) and _k(self.answered_text) in _k(text) and _k(text) != _k(self.answered_text):
+        if self.answered_text and same and _k(self.answered_text) and _k(self.answered_text) in _k(text) and _k(text) != _k(self.answered_text):
             self.continuation = True
             self.segments = []
             await self.emit("log", msg=f"el definitivo completa lo respondido: «{text}»")
@@ -562,6 +566,7 @@ class VoiceCall:
             self.segments = []
             self.respond_timer = None
             self.answered_text = full
+            self.answered_act = self.ears.act if self.ears else -1
             self.undo_requested = False
             t0 = time.perf_counter()
             before = copy.deepcopy(self.call.s)

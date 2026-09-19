@@ -75,15 +75,11 @@ def english_phrases() -> list[str]:
 
 
 async def prosper_vocabulary():
-    """El transcriptor, sesgado hacia los nombres de ESTA clínica (no los de la demo)."""
+    """El transcriptor, sesgado hacia las especialidades de la clínica (no hacia los nombres de la demo)."""
     import voice
-    try:
-        cat = await API.clinic()
-    except Exception:  # noqa: BLE001
-        return
-    # Solo sedes y especialidades: los nombres de médicos y aseguradoras sesgaban los nombres de pacientes
-    # («Pau Vidal Serra» → «Pablo Vilar Sáenz») y las letras del DNI («S» → «ASISA»).
-    words = {l["name"] for l in cat["locations"]} | {"Arenal", "gynaecology", "orthopaedics", "paediatrics", "physiotherapy", "dermatology"}
+    # Solo especialidades: los nombres propios del catálogo sesgaban los de los pacientes («Pau Vidal Serra» →
+    # «Pablo Vilar Sáenz», «Elena» → «Arenal») y las letras del DNI («S» → «ASISA»). Las sedes las encaja Jev.
+    words = {"gynaecology", "orthopaedics", "paediatrics", "physiotherapy", "dermatology"}
     voice.VOCAB[:] = sorted(words)
 
 
