@@ -524,6 +524,11 @@ class Conv:
                 v = None
             if v:
                 det.append(f"{k} {v}")
+        opts = self.menu_options()
+        if opts:
+            pk, pc = p.c("picks") if "picks" in p.raw else (None, 0.0)
+            j.append("options on the table, in the order offered: " + " | ".join(f"{k}: {v}" for k, v in opts.items())
+                     + (f" · the caller picks {pk} ({pc:.2f}): use that offer_id" if pk and pk != "none" and pc >= 0.6 else ""))
         day = self.resolve_day(p, text)
         return (f"[System 1 · Jev] {' · '.join(j)}" + (f"\n[Deterministic reading of the numbers] {' · '.join(det)}" if det else "")
                 + (f"\n[Deterministic date, computed in code: trust it] {day}" if day else ""))
