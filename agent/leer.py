@@ -156,26 +156,58 @@ def parse_phone(text: str) -> str | None:
     return m.group(0) if m and len(d) <= 12 else None
 
 
+STOP_BEFORE = {"is", "es", "email", "it", "its", "that", "my", "correo", "address", "adress", "mail", "e", "the"}
+TLDS = {"com", "es", "org", "net", "cat", "eu", "co", "uk", "io", "info", "edu", "gob", "fr", "de", "it", "pt"}
+
+
 def parse_email(text: str) -> str | None:
-    """«e l e n a dot castro at gmail dot com» → elena.castro@gmail.com; también si ya viene con @."""
-    t = fold(text).strip().rstrip(".")
-    m = re.search(r"[\w.+-]+@[\w-]+(\.[\w-]+)+", t)
+    """«e l e n a dot castro at gmail dot com» → elena.castro@gmail.com; también si ya viene con @. Si lo dice y
+    luego lo deletrea, vale la primera versión completa."""
+    t = fold(text).strip()
+    m = re.search(r"[a-z0-9_.+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+", t)
     if m:
-        return m.group(0)
+        return m.group(0).rstrip(".")
+    t = re.sub(r"[’']s\b", " is", t)                          # «it's», «that's»
     t = re.sub(r"\b(dot|punto|punt)\b", " . ", t)
     t = re.sub(r"\b(at|arroba)\b", " @ ", t)
     t = re.sub(r"\b(underscore|guion bajo)\b", " _ ", t)
-    t = re.sub(r"\b(dash|hyphen|guion)\b", " - ", t)
-    if "@" not in t:
+    toks = re.findall(r"[a-z0-9]+|[.@_]|-", t)
+    # letras deletreadas (b-e-a-t-r-i-z, «e, l, e, n, a», «a n d r e i p») → una palabra
+    merged: list[str] = []
+    for i, w in enumerate(toks):
+        if w == "-":
+            if merged and len(merged[-1]) >= 1 and merged[-1] not in ".@_" and i + 1 < len(toks) and len(toks[i + 1]) == 1:
+                continue                                   # guion entre letras deletreadas
+            merged.append("-")
+            continue
+        if len(w) == 1 and w.isalnum() and merged and merged[-1] not in ".@_-" and (len(merged[-1]) == 1 or getattr(parse_email, "_run", False)):
+            merged[-1] += w
+            parse_email._run = True
+            continue
+        parse_email._run = len(w) == 1 and w.isalnum()
+        merged.append(w)
+    parse_email._run = False
+    if "@" not in merged:
         return None
-    left, right = t.split("@", 1)
-    right = re.sub(r"\b(it's|its|my|email|is|es|mi|correo)\b", " ", right)
-    left = re.sub(r"^.*\b(is|es|email|correo|address)\b", " ", left)
-    join = lambda s: re.sub(r"\s+", "", re.sub(r"[^\w.\-_\s]", " ", s))
-    lpart, rpart = join(left), join(right.split(" and ")[0])
-    if not lpart or "." not in rpart:
+    i = merged.index("@")
+    local: list[str] = []
+    j = i - 1
+    while j >= 0 and merged[j] not in STOP_BEFORE and (merged[j] in "._-" or merged[j].isalnum()):
+        local.insert(0, merged[j])
+        j -= 1
+    dom, k = [], i + 1
+    if k < len(merged) and merged[k].isalnum():
+        dom.append(merged[k])
+        k += 1
+        while k + 1 < len(merged) and merged[k] == "." and merged[k + 1].isalnum() and (merged[k + 1] in TLDS or len(merged[k + 1]) <= 3):
+            dom += [".", merged[k + 1]]
+            k += 2
+            if dom[-1] in TLDS and not (k + 1 < len(merged) and merged[k] == "." and merged[k + 1] in TLDS):
+                break
+    lp = "".join(local).strip("._-")
+    if not lp or len(dom) < 3:
         return None
-    return f"{lpart}@{rpart}"
+    return f"{lp}@{''.join(dom)}"
 
 
 def name_score(text: str, full_name: str) -> float:
@@ -222,7 +254,11 @@ if __name__ == "__main__":
         ok += got == want
         print(("✅" if got == want else "❌"), repr(t), "→", got)
     for t, want in {"elena dot castro at gmail dot com": "elena.castro@gmail.com", "a n d r e i p, at outlook dot e s.": "andreip@outlook.es",
-                    "It's elena.castro@gmail.com": "elena.castro@gmail.com", "e, l, e, n, a, dot castro, at gmail dot com.": "elena.castro@gmail.com"}.items():
+                    "It's elena.castro@gmail.com": "elena.castro@gmail.com", "e, l, e, n, a, dot castro, at gmail dot com.": "elena.castro@gmail.com",
+                    "It is beatriz dot okafor at hotmail dot com. That is b-e-a-t-r-i-z dot o-k-a-f-o-r at hotmail dot com.": "beatriz.okafor@hotmail.com",
+                    "My email is tomas dot prieto at hotmail dot com, t-o-m-a-s": "tomas.prieto@hotmail.com",
+                    "andrei p at outlook dot es": "andreip@outlook.es", "grace.walsh@gmail.com.": "grace.walsh@gmail.com",
+                    "it's laia dot costa at outlook dot co dot uk": "laia.costa@outlook.co.uk"}.items():
         got = parse_email(t)
         ok += got == want
         print(("✅" if got == want else "❌"), repr(t), "→", got)

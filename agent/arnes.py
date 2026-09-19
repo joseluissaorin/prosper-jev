@@ -348,7 +348,7 @@ def fam_questions(rng):
     c = fam_simple(rng)
     q = rng.choice(["which of your sites is open on Saturdays", "what time Arenal Norte closes today", "where Arenal Sur is",
                     "whether Dr Sáez is a GP", "which doctors speak Catalan"])
-    c.update(family="preguntas", problem="p16", goal=f"First ask {q}. Then: {c['goal']}")
+    c.update(family="preguntas", problem="p16", goal=f"First ask {q} (just out of curiosity: the answer does not change what you want). Then: {c['goal']}")
     return c
 
 

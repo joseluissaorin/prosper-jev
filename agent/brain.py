@@ -623,7 +623,8 @@ class Brain:
         oo, oc = p.c("oos")
         # la respuesta a una pregunta de datos (mal oída a veces: «Calf roping at all?») no es una petición fuera de ámbito
         answering = s.pending.startswith(("reg_", "identity", "which_", "not_found")) and act in ("provide_info", "unclear", "correct")
-        if oo and oo != "none" and oc >= 0.7 and not answering and (oo != "unrelated" or s.pending in ("", "need", "anything_else")):
+        a_question = act == "ask_question" or p.n("asks_question") >= 0.7
+        if oo and oo != "none" and oc >= 0.7 and not answering and (oo != "unrelated" or (s.pending in ("", "need", "anything_else") and not a_question)):
             s.oos = "out_of_scope"
             s.pending = "anything_else"
             out.append(self.gate("límites", False, f"{oo} ({oc:.2f}): se declina sin leer datos de nadie"))
@@ -663,7 +664,7 @@ class Brain:
         if pre_say and not content and not s.intent:
             return out + pre_say + [self._text({"en": "How can I help you today?", "es": "¿En qué puedo ayudarle?",
                                                 "ca": "En què el puc ajudar?"}.get(s.lang, "How can I help you today?"), "ask_need")]
-        if pre_say and self._answered_q(p, act) and s.intent and s.pending != "confirm_book":
+        if pre_say and self._answered_q(p, act) and s.pending != "confirm_book":
             # solo preguntaba: se contesta y se retoma, sin tocar preferencias (el médico o la sede de la pregunta no son
             # los de la reserva)
             return out + pre_say + await self.advance(reprompt=True)
@@ -1440,8 +1441,8 @@ class Brain:
                 if person.get("second_surname"):
                     s.reg["second_surname"] = person["second_surname"]
         if ask == "given_name" and not s.reg.get("given_name") and not ex.get("people"):
-            g = re_sub(r"^(?:(?:yes|yeah|sure|ok|okay|hi|hello|so|well|um|uh)[,.]?\s+)*(?:my (?:first )?name is|it's|it is|i'm|i am|me llamo|soy|mi nombre es|em dic|el meu nom és)\s+", "",
-                       text.strip().rstrip(".!"), ) if text else ""
+            g = re_sub(r"(?i)^(?:(?:yes|yeah|sure|ok|okay|hi|hello|so|well|um|uh)[,.]?\s+)*(?:my (?:first |given )?name is|it's|it is|i'm|i am|me llamo|soy|mi nombre es|em dic|el meu nom és)\s+", "",
+                       text.strip().rstrip(".!")) if text else ""
             w = [x for x in re_findall(r"[A-Za-zÀ-ÿ'-]+", g) if fold(x) not in FILLER]
             if 1 <= len(w) <= 2:
                 s.reg["given_name"] = " ".join(x[:1].upper() + x[1:] for x in w)
