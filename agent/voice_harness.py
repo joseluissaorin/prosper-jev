@@ -3,7 +3,7 @@
     ../.venv/bin/python voice_harness.py --prep          # graba de antemano todas las frases (una vez)
     ../.venv/bin/python voice_harness.py                 # las 50 llamadas, 10 a la vez
     ../.venv/bin/python voice_harness.py p13 p14         # solo esos problemas
-    ../.venv/bin/python voice_harness.py --caso p4_dni   # una
+    ../.venv/bin/python voice_harness.py --caso p4_dni   # una (o varias separadas por comas)
 
 La voz de quien llama está pregrabada (Gemini TTS, varias voces) y el ruido se mezcla en directo a 5 dB sobre
 la voz y el silencio. El arnés sabe qué ha dicho el agente leyendo la consola del propio agente (/monitor) y
@@ -448,9 +448,9 @@ async def main():
     if "--prep" in args:
         await prep(cs)
         return
-    only = args[args.index("--caso") + 1] if "--caso" in args else None
+    only = set(args[args.index("--caso") + 1].split(",")) if "--caso" in args else None
     probs = [a for a in args if re.fullmatch(r"p\d+", a)]
-    cs = [c for c in cs if (not probs or c["problem"] in probs) and (not only or c["id"] == only)]
+    cs = [c for c in cs if (not probs or c["problem"] in probs) and (not only or c["id"] in only)]
     missing = [t for t in all_lines(cs) if not _key(*t).exists()]
     if missing:
         print(f"Faltan {len(missing)} frases por grabar: ejecuta --prep")
