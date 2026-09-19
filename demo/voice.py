@@ -92,6 +92,9 @@ class Stt:
 
     async def _send(self, **kw):
         """Envía; si la conexión se ha caído, reconecta (y reabre la intervención en curso) y reintenta una vez."""
+        if os.environ.get("STT_DEBUG"):
+            k = next(iter(kw))
+            log.warning("STT %s → %s %s", self.tag, k, len(kw[k].data) if k == "audio" else "")
         try:
             await self.session.send_realtime_input(**kw)
         except Exception as e:  # noqa: BLE001
