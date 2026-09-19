@@ -46,6 +46,7 @@ CALLS = HERE / "calls"
 CALLS.mkdir(exist_ok=True)
 
 
+PUNTO_FINAL = re.compile(r"[.?!…]['\"”»)]?\s*$")
 _CIFRA_FINAL = re.compile(r"(?:\d|[-–—])\s*[.,]?\s*$")
 _LETRA_SUELTA = re.compile(r"\b[a-zA-Z]\s*[.,]?\s*$")
 
@@ -416,7 +417,13 @@ class VoiceCall:
                 # agenda, el turno no espera al veredicto de Jev: no queda nada que decidir. Es el caso normal
                 # cuando el cerebro especula en cada parcial, y ahí el techo lo ponía el reloj, no el sentido.
                 listo = not cuelga and stable >= 0.2 and silence >= 0.1 and self.plan_listo(full)
+                # El oído pone el punto justo cuando da la frase por cerrada, y eso llega ~300 ms antes que el
+                # juicio de Jev. Si el parcial termina en punto (o en interrogación o exclamación) y lleva quieto
+                # un momento, el turno se cierra con esa señal: es determinista y no cuesta nada. Lo que venga
+                # después, si quien llama seguía hablando, lo recoge deshacer y unir.
+                puntuado = not cuelga and stable >= 0.12 and silence >= 0.10 and PUNTO_FINAL.search(full)
                 if (listo
+                        or puntuado
                         or silence >= (1.8 if cuelga else 1.3)
                         or (silence >= 0.05 and stable >= 0.15 and fin is not None and fin >= 0.92)
                         or (not cuelga and silence >= 0.15 and stable >= 0.10 and fin is not None and fin >= 0.75)
@@ -424,7 +431,8 @@ class VoiceCall:
                         or (not cuelga and silence >= 0.5 and stable >= 0.8)
                         or (not cuelga and silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))
                         or (cuelga and silence >= 1.0 and stable >= 1.0)):
-                    why = "la respuesta ya estaba hecha" if listo else f"silencio {silence:.2f} s"
+                    why = ("la respuesta ya estaba hecha" if listo
+                           else "el oído cerró la frase con punto" if puntuado else f"silencio {silence:.2f} s")
             # voz de fondo: el detector lleva ≥3 s oyendo voz SIN una sola pausa (una persona hace pausas; una tele no)
             # y el texto no cambia. Con menos, es el retraso del transcriptor en una frase normal.
             elif self.turn_text and self.interim and now - self.run_t >= 3.0 and \
