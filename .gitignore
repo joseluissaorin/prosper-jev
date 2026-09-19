@@ -11,3 +11,4 @@ agent/calls/
 # claves: nunca en el repositorio (viven en ~/.claude/.secrets/)
 *.env
 .env*
+agent/cache/
