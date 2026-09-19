@@ -46,8 +46,16 @@ CALLS = HERE / "calls"
 CALLS.mkdir(exist_ok=True)
 
 
-# una lectura de cifras a medias: acaba en cifra, en guion de corte del transcriptor o en una letra suelta
-COLGANDO = re.compile(r"(?:\d|[-–—]|\b[a-zA-Z])\s*[.,]?\s*$")
+_CIFRA_FINAL = re.compile(r"(?:\d|[-–—])\s*[.,]?\s*$")
+_LETRA_SUELTA = re.compile(r"\b[a-zA-Z]\s*[.,]?\s*$")
+
+
+def colgando(texto: str) -> bool:
+    """¿Se ha quedado a medias una lectura de cifras? Acaba en cifra, en el guion con que el transcriptor marca un
+    corte, o en una letra suelta PERO solo si viene deletreando algo con números (si no, cualquier «y» final del
+    español haría esperar de más a todos los turnos)."""
+    cola = texto[-18:]
+    return bool(_CIFRA_FINAL.search(cola) or (_LETRA_SUELTA.search(cola) and re.search(r"\d", cola)))
 
 
 
@@ -403,7 +411,7 @@ class VoiceCall:
                 # medio segundo entre grupos de cifras, y el parcial se queda quieto mientras calla. Cortarle ahí
                 # produce «It's an NIE 1234-» y la recepción vuelve a preguntar lo mismo tres veces. Si el texto
                 # acaba en cifra, en guion o en una letra suelta y Jev no ve la frase terminada, se le da más aire.
-                cuelga = bool(COLGANDO.search(full)) and (fin is None or fin < 0.7)
+                cuelga = colgando(full) and (fin is None or fin < 0.7)
                 if (silence >= (1.8 if cuelga else 1.3)
                         or (silence >= 0.05 and stable >= 0.15 and fin is not None and fin >= 0.92)
                         or (not cuelga and silence >= 0.15 and stable >= 0.10 and fin is not None and fin >= 0.75)
