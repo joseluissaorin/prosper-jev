@@ -588,6 +588,7 @@ class Conv:
             p = P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"])
             if spec:
                 self.speculate(text, p)
+                self.backchannel(p)
             return p
         except Exception as e:  # noqa: BLE001
             # Jev caído (sin créditos, 5xx…): el mismo juicio con Flash-Lite, más lento pero seguro; nunca a ciegas
@@ -597,6 +598,17 @@ class Conv:
             if spec:
                 self.speculate(text, p)
             return p
+
+    def backchannel(self, p: P):
+        """El «ajá» en cuanto se oye que la frase ha terminado, sin esperar a cerrar el turno. Es lo que hace una
+        persona al teléfono, no compromete nada (si sigue hablando, solo habremos asentido) y adelanta medio segundo
+        la primera palabra del agente."""
+        if self._dry or not self.on_early or self.no_confirm:
+            return
+        if p.n("finished", 0.0) < 0.9 or len(p.text.split()) < 3:
+            return
+        self._p = self._p or p
+        self.start_filler(p)
 
     def speculate(self, text: str, p: P):
         """Planificar sobre el parcial sin esperar a que la persona termine: cuando se cierra el turno, la respuesta
@@ -745,14 +757,14 @@ class Conv:
         """Arrancar a hablar mientras se planifica, con el marcador que pide el acto de habla y sin repetirse."""
         s = self.s
         kind = self.filler_kind(p)
-        if kind is None or s.turn - getattr(s, "filler_turn", -9) < 1:
+        if kind is None or s.filler_turn >= s.turn + 1:      # uno por turno (el parcial ya lo cuenta para el que viene)
             return
         lg, lc = p.c("lang")
         propio = lg in ARRANQUE and lc >= 0.9 and not self.solo_datos(p.text) and len(p.text.split()) >= 5
         lang = lg if (propio and not s.lang_locked) else (s.lang if s.lang in ARRANQUE else "en")
         opts = [x for x in ARRANQUE[lang][kind] if x not in s.fillers[-2:]] or ARRANQUE[lang][kind]
         word = opts[s.turn % len(opts)]
-        s.filler_turn = s.turn
+        s.filler_turn = s.turn + 1 if self._dry is False and s.history and s.history[-1].startswith("Receptionist:") else s.turn
         s.fillers = (s.fillers + [word])[-4:]
         s.said_filler = True
         try:
