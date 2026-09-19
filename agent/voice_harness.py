@@ -477,6 +477,12 @@ class Call:
                     key = pick(agent, c["lines"])
                 if key == "WAIT":
                     key = "bye"
+                # «¿algo más?» cuando todavía no se ha pedido lo que se venía a pedir (p16: primero se pregunta qué
+                # sede abre el sábado y LUEGO se pide la cita) no es una despedida: es el momento de pedirlo
+                if key == "bye" and c["lines"].get("need") and not self.used.get("need") and \
+                        re.search(r"anything else|help you with|algo más|res més|alguna cosa més", agent.lower()):
+                    key = "need"
+                    self.used["need"] = 1
                 # en la lectura final del alta, quien llama comprueba sus datos y corrige lo que esté mal
                 if c.get("expect_reg") and "fix" in c["lines"] and self.used.get("fix", 0) < 2 and \
                         re.search(r"read that back|le leo los datos|what needs correcting|qué hay que corregir", agent.lower()) and \
