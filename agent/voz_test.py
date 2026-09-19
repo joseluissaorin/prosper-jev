@@ -101,6 +101,16 @@ class Llamada:
 
     async def decir(self, texto: str, lang: str):
         audio = await say(texto, lang)
+        # el fin de voz de verdad es la última muestra con energía: el audio sintetizado acaba con su propia pausa,
+        # y medir desde el final del fichero regalaba ~400 ms de más
+        pcm = ulaw.ulaw_to_pcm16(audio)
+        fin_muestra = len(audio)
+        for i in range(len(audio) - 160, 0, -160):
+            trozo = pcm[i * 2:(i + 160) * 2]
+            if max(abs(int.from_bytes(trozo[j:j + 2], "little", signed=True)) for j in range(0, len(trozo), 2)) > 900:
+                fin_muestra = i + 160
+                break
+        cola = (len(audio) - fin_muestra) / 8000.0
         # silencio real antes y después, como en una línea de teléfono: sin él el detector se queda «oyendo» ruido
         audio = b"\xff" * 1600 + audio + b"\xff" * 4000
         self.listening, self.first_in = False, 0.0
@@ -111,7 +121,7 @@ class Llamada:
                                            "media": {"payload": base64.b64encode(frame).decode()}}))
             t0 += 0.02
             await asyncio.sleep(max(0.0, t0 - time.perf_counter()))
-        fin = time.perf_counter() - 1.0      # el final de la voz es antes del silencio de cola que acabamos de mandar
+        fin = time.perf_counter() - 0.5 - cola   # el fin de voz real: quitando el silencio de cola nuestro y el del audio
         self.listening = True
         # esperar a que el agente empiece y termine de hablar (700 ms sin tramas)
         while time.perf_counter() - fin < 25:
