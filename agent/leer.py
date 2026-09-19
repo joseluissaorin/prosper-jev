@@ -120,6 +120,25 @@ def parse_dob(text: str) -> str | None:
     return None
 
 
+def parse_day(text: str, today: date) -> str | None:
+    """Fecha de cita sin año («Monday the 12th of October», «el 3 de octubre», «October 2nd») → la próxima en el
+    calendario, en ISO. Solo con mes explícito: «el 3» a secas lo decide la extracción."""
+    t = words_to_numbers(text)
+    t = re.sub(r"\b(of|de|del|d)\b", " ", t)
+    t = re.sub(r"[,.]", " ", t)
+    mon = "|".join(sorted(MONTHS, key=len, reverse=True))
+    m = re.search(rf"\b(\d{{1,2}})\s+(?:the\s+)?({mon})\b(?!\s+\d{{2,4}})", t) or re.search(rf"\b({mon})\s+(?:the\s+)?(\d{{1,2}})\b(?!\s+\d{{2,4}})", t)
+    if not m:
+        return None
+    a, b = m.groups()
+    d, mo = (int(a), MONTHS[b]) if a.isdigit() else (int(b), MONTHS[a])
+    for y in (today.year, today.year + 1):
+        iso = _iso(y, mo, d)
+        if iso and iso >= today.isoformat():
+            return iso
+    return None
+
+
 def _iso(y, mo, d):
     try:
         return date(y, mo, d).isoformat() if y else None
@@ -263,3 +282,8 @@ if __name__ == "__main__":
         ok += got == want
         print(("✅" if got == want else "❌"), repr(t), "→", got)
     print(name_score("Mario Garcia Lopez. My DNI is 39958838.", "Mario García López"), name_score("It's Marta Ruiz Navarro.", "Marta Serra Puig"))
+    hoy = date(2026, 9, 19)
+    for t, want in {"first thing on Monday the 12th of October": "2026-10-12", "el 3 de octubre por la tarde": "2026-10-03",
+                    "October 2nd please": "2026-10-02", "on the 12th": None, "born 3rd of May 1944": None}.items():
+        got = parse_day(t, hoy)
+        print(("✅" if got == want else "❌"), repr(t), "→", got)

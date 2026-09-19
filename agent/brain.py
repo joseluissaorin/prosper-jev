@@ -419,7 +419,34 @@ class Brain:
         em = leer.parse_email(text)
         if em:
             out["email"] = em
+        day = leer.parse_day(text, self.s.t0.date())
+        if day:
+            out["appointment_date"] = day
         return out
+
+    def must_wait(self, p: P, det: dict) -> bool:
+        """¿Hace falta esperar a la extracción con LLM en este turno? Se decide con los juicios de Jev (ya hechos):
+        solo si hay algo libre que la lectura determinista no cubre."""
+        s = self.s
+        if s.pending.startswith("reg_") or s.intent == "register":
+            return not self.det_enough(det)
+        rel = p.c("relation")[0]
+        identifying = not s.patient and (s.pending.startswith(("identity", "not_found")) or s.intent in ("book", "reschedule", "cancel")
+                                         or p.c("intent")[0] in ("book", "reschedule", "cancel"))
+        if identifying:
+            if rel not in (None, "self") or p.n("third_party") >= 0.5:
+                return True                                   # quién es quién (quien llama y paciente): hace falta
+            if not any(k in det for k in ("national_id", "date_of_birth", "phone")) and p.n("gives_info") >= 0.5 and \
+                    s.pending.startswith(("identity", "not_found")):
+                return True                                   # solo un nombre: hay que sacarlo para buscarlo
+        dk, dc = p.c("date_kind")
+        if dk == "specific_date" and dc >= 0.5 and "appointment_date" not in det:
+            return True
+        if p.c("provider")[0] == "unknown" and p.c("provider")[1] >= 0.5:
+            return True
+        if p.n("gives_address") >= 0.6:
+            return True
+        return False
 
     def det_enough(self, det: dict) -> bool:
         """¿Basta la lectura determinista para lo que se espera en este turno?"""
@@ -457,11 +484,12 @@ class Brain:
             return P(text=text, raw={"act": {"type": "choice", "choice": "unclear", "confidence": 1.0, "probabilities": {}}}, ex={}, ms=-1)
         if spec and et and not et.done():
             return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"], ex_task=et)
-        # lectura determinista: si basta para este turno, no se espera al LLM (sigue en segundo plano)
+        # lectura determinista + lo que ya sabe Jev: solo se espera al LLM si hace falta algo que no cubren
         if et and not et.done():
             det = self.read_det(text)
-            if self.det_enough(det):
-                return P(text=text, raw=r["answers"], ex=det, ms=r["ms"], ms_ex=0, hedged=r["hedged"], ex_task=et)
+            p0 = P(text=text, raw=r["answers"], ex=det, ms=r["ms"], ms_ex=0, hedged=r["hedged"], ex_task=et)
+            if not self.must_wait(p0, det):
+                return p0
         ex, ms_ex = (await et) if et else ({}, 0)
         return P(text=text, raw=r["answers"], ex=ex, ms=r["ms"], ms_ex=ms_ex, hedged=r["hedged"])
 
@@ -562,7 +590,7 @@ class Brain:
             s.ev["id_text"] = text[-300:]          # para casar el nombre con la ficha sin esperar a la extracción
         if p.ex_task is not None and not p.ex and not getattr(self, "_dry", False):
             det = self.read_det(text)
-            if not p.ex_task.done() and self.det_enough(det):
+            if not p.ex_task.done() and not self.must_wait(p, det):
                 p.ex = det                           # la extracción sigue en segundo plano; no se la espera
             else:
                 p.ex, p.ms_ex = await p.ex_task
@@ -648,8 +676,12 @@ class Brain:
         sched = (p.c("date_kind")[0] not in (None, "none") and p.c("date_kind")[1] >= 0.6) or \
                 (p.c("part")[0] not in (None, "any") and p.c("part")[1] >= 0.6)
         # «¿qué es lo primero que tienen?» o «¿no hay nada el sábado?» dentro de una reserva son PETICIÓN, no pregunta
-        if asked and ((s.intent in ("book", "reschedule") and sched and topic != "weekend") or (request and topic in ("other", "none", None))):
+        # (con una oferta encima de la mesa, «sí, y ¿hay aparcamiento?» sí se contesta)
+        offering = s.pending == "confirm_book" and s.offer is not None
+        if asked and not offering and ((s.intent in ("book", "reschedule") and sched and topic != "weekend") or (request and topic in ("other", "none", None))):
             asked = False
+        if asked and offering and sched and topic not in ("site_hours", "weekend", "duration", "practical", "provider_specialty", "provider_where", "languages"):
+            asked = False           # «¿no hay nada el sábado?» ante una oferta: es otra preferencia, no una pregunta
         if asked and not greet:
             ans = await self.answer(text, p)
             if ans:
