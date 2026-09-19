@@ -82,19 +82,23 @@ def build() -> list[dict]:
     reg_elena = dict(open="Hi, I'm not a patient yet. I'd like to register with the clinic, please.", given="Elena.", surnames="Castro Vidal.",
                      id="Elena Castro Vidal.", dni=f"{s('45678912')} || S.", dob="Fourth of February, nineteen ninety-three.", phone=f"{s('633445566')}.",
                      email="elena dot castro at gmail dot com.", insurer="Sanitas.", yes="Yes, that's all correct.", no="No thank you, I don't need an appointment now.",
-                     register="Yes please.", bye="No, that's all. Bye.")
+                     register="Yes please.", bye="No, that's all. Bye.",
+                     fix="No, sorry: my first name is Elena, E, L, E, N, A. And the email is e, l, e, n, a, dot castro, at gmail dot com.")
+    # lo que quien llama comprueba en la lectura final (como haría una persona: si está mal, lo corrige)
+    elena_ok = dict(given="Elena", email="elena.castro@gmail.com")
     c("p4_dni", "p4", "Zephyr", reg_elena,
       E.register(given_name="Elena", first_surname="Castro", second_surname="Vidal", national_id="45678912S", date_of_birth="1993-02-04",
-                 phone="633445566", email="elena.castro@gmail.com", insurer="sanitas"))
+                 phone="633445566", email="elena.castro@gmail.com", insurer="sanitas"), expect_reg=elena_ok)
     c("p4_nie", "p4", "Puck", dict(open="Hello, I'd like to be registered as a new patient.", given="Andrei.", surnames="Popescu Ionescu.", id="Andrei Popescu Ionescu.",
                                    dni=f"It's an NIE: Y, {s('1234567')}, X.", dob="Thirtieth of November, nineteen eighty-eight.", phone=f"{s('611222333')}.",
                                    email="a n d r e i p, at outlook dot e s.", insurer="DKV.", yes="Yes, correct.", no="No, no appointment for now, thanks.",
-                                   register="Yes.", bye="Thanks, bye."),
+                                   register="Yes.", bye="Thanks, bye.",
+                                   fix="No: my first name is Andrei, A, N, D, R, E, I. And the email is a, n, d, r, e, i, p, at outlook dot e, s."),
       E.register(given_name="Andrei", first_surname="Popescu", second_surname="Ionescu", national_id="Y1234567X", date_of_birth="1988-11-30",
-                 phone="611222333", email="andreip@outlook.es", insurer="dkv"))
+                 phone="611222333", email="andreip@outlook.es", insurer="dkv"), expect_reg=dict(given="Andrei", email="andreip@outlook.es"))
     c("p4_letra_corregida", "p4", "Aoede", {**reg_elena, "dni": [f"{s('45678912')} K.", f"Sorry, my mistake: {s('45678912')} S."]},
       E.register(given_name="Elena", first_surname="Castro", second_surname="Vidal", national_id="45678912S", date_of_birth="1993-02-04",
-                 phone="633445566", email="elena.castro@gmail.com", insurer="sanitas"))
+                 phone="633445566", email="elena.castro@gmail.com", insurer="sanitas"), expect_reg=elena_ok)
 
     # ── 5 · cuándo exactamente (6)
     c("p5_manana_domingo", "p5", "Leda", {**marta, "open": "Hi, can I see a GP tomorrow?", "yes": "Oh, closed tomorrow? Then yes, the next day is fine."},

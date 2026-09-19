@@ -166,6 +166,11 @@ def grounded(name_part: str, text: str) -> bool:
     return bool(words) and all(f" {w} " in t for w in words)
 
 
+# relleno que no es un apellido cuando se piden los apellidos
+FILLER = {"my", "surnames", "surname", "are", "is", "its", "it", "s", "and", "the", "yes", "sure", "they", "them", "last", "names",
+          "name", "family", "mis", "apellidos", "son", "y", "els", "meus", "cognoms", "i", "sorry", "oh", "um", "uh", "well", "so", "ok", "okay"}
+
+
 # palabras con mayúscula que no son nombres de persona (en inglés los días y los meses la llevan)
 NOT_NAMES = {"i", "i'm", "i'd", "i'll", "i've", "gp", "dni", "nie", "ok", "okay", "arenal", "centro", "norte", "sur", "clinica",
              "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march",
@@ -364,8 +369,12 @@ class Brain:
             "offscript": noul("Is the caller asking a question about the clinic itself (how many sites, which doctors, opening hours, addresses) rather than giving details?"),
             "specialty": choice("Which specialty does the caller ask for in `caller` (a GP / family doctor is general practice)? Pick 'none' if none is named.",
                                 {x["id"]: x["name"] for x in c["specialties"]} | {"none": "No specialty named"}),
-            "provider": choice("Which provider does the caller name in `caller`? Pick 'none' if no provider is named.",
+            "provider": choice("Which provider does the caller name in `caller`? The name may be misheard: match by sound "
+                               "(and by specialty). Pick 'none' if no provider is named, 'unknown' only if it sounds like none of them.",
                                {p["id"]: f"{p['name']} ({p['specialty_name']})" for p in c["providers"]} | {"none": "No provider named", "unknown": "Names a doctor not on this list"}),
+            "provider_sound": choice("If `caller` names a doctor, which of these surnames sounds most like the name they said? "
+                                     "Pick 'none' if no doctor is named.",
+                                     {p["id"]: p["name"].split()[-1] for p in c["providers"]} | {"none": "No doctor named"}),
             "site": choice("Which clinic site does the caller ask for in `caller`? The name may be misheard: match by sound.", {l["id"]: l["name"] for l in c["locations"]} | {"none": "No site named"}),
             "gives_address": noul("Does the caller give a street address or say where they are, asking for the nearest or closest clinic?"),
             "date_kind": choice("Which day does the caller ask for in `caller`?", DATE_KINDS),
@@ -565,6 +574,9 @@ class Brain:
             else:
                 s.provider = pv
                 s.specialty = s.specialty or self.prov(pv).get("specialty_id")
+        elif pv == "unknown" and self.sounds_like(p):
+            s.provider = self.sounds_like(p)
+            out.append(self._log("provider_by_sound", said=said, provider=s.provider))
         elif pv == "unknown" and pc >= 0.6 and said:
             s.provider = "unknown"
             s.ev["provider_said"] = said
@@ -635,16 +647,57 @@ class Brain:
                 self._stop = True
             elif act in ("reject", "correct"):
                 s.target = None
-        elif s.pending == "reg_confirm":
-            if act == "confirm" and ac >= 0.8:
+        elif s.pending in ("reg_confirm", "reg_fix"):
+            if act == "confirm" and ac >= 0.8 and s.pending == "reg_confirm":
                 out += await self.submit("register", self.register_body())
                 s.pending = "anything_else"
                 out.append(self._text({"en": "You're registered with us now. We'll have your details on file whenever you need us. Is there anything else?",
                                        "es": "Ya está dado de alta. ¿Algo más?", "ca": "Ja està donat d’alta. Alguna cosa més?"}[s.lang], "reg_done"))
                 self._stop = True
-            elif act in ("reject", "correct"):
-                s.reg_field = None
+            else:
+                # «No, el correo es…»: se corrige lo que diga y se vuelve a leer; si no dice qué, se pregunta
+                changed = self.apply_reg_corrections(p)
+                out.append(self._log("reg_correction", changed=changed))
+                if not changed:
+                    s.pending = "reg_fix"
+                    out.append(self._say("reg_fix"))
+                    self._stop = True
         return out
+
+    def apply_reg_corrections(self, p: P) -> list[str]:
+        s, ex, r = self.s, p.ex, self.s.reg
+        flat = "".join(ch for ch in fold(p.text) if ch.isalnum())
+        heard = lambda v: bool(v) and "".join(ch for ch in fold(v) if ch.isalnum()) in flat   # dicho o deletreado
+        changed = []
+        people = [x for x in ex.get("people") or [] if x.get("role") in ("caller", "both", "patient", None)]
+        if people:
+            for k in ("given_name", "first_surname", "second_surname"):
+                v = (people[0].get(k) or "").strip()
+                if v and v.lower() != "null" and heard(v) and v != r.get(k):
+                    r[k] = v
+                    changed.append(k)
+        if ex.get("national_id"):
+            nid, _ = normalize_national_id(ex["national_id"])
+            if nid and nid != r.get("national_id"):
+                r["national_id"] = nid
+                changed.append("national_id")
+        ph = "".join(c for c in (ex.get("phone") or "") if c.isdigit())
+        if len(ph) >= 9 and ph != r.get("phone"):
+            r["phone"] = ph
+            changed.append("phone")
+        if ex.get("email") and "@" in ex["email"]:
+            em = self.email_like_name(ex["email"].strip().lower().replace(" ", ""))
+            if em != r.get("email"):
+                r["email"] = em
+                changed.append("email")
+        if ex.get("date_of_birth") and ex["date_of_birth"] != r.get("date_of_birth"):
+            r["date_of_birth"] = ex["date_of_birth"]
+            changed.append("date_of_birth")
+        ins, ic = p.c("insurer")
+        if ins and ins != "none" and ic >= 0.6 and ins != r.get("insurer"):
+            r["insurer"] = ins
+            changed.append("insurer")
+        return changed
 
     # ------------------------------------------------------------ siguiente paso
 
@@ -1017,6 +1070,14 @@ class Brain:
 
     # ------------------------------------------------------------ cifras: segunda opinión
 
+    def sounds_like(self, p: P) -> str | None:
+        """Un médico «desconocido» que suena como uno de la clínica DE LA ESPECIALIDAD pedida («Dra. Glacius» de
+        dermatología → Iglesias). Sin especialidad que lo respalde, no se adivina: puede no existir de verdad."""
+        snd, sc = p.c("provider_sound")
+        if snd and snd != "none" and sc >= 0.5 and self.s.specialty and self.prov(snd).get("specialty_id") == self.s.specialty:
+            return snd
+        return None
+
     def digits_kind(self, text: str) -> str | None:
         """¿Esperamos cifras en este turno? Teléfono en el alta; DNI/NIE (7-8 cifras) en el alta o al identificar."""
         s = self.s
@@ -1099,9 +1160,10 @@ class Brain:
                 if person.get("second_surname"):
                     s.reg["second_surname"] = person["second_surname"]
         if ask == "surnames" and not (s.reg.get("first_surname") and s.reg.get("second_surname")):
-            ws = [w.strip(".,") for w in text.split() if w[:1].isupper() and grounded(w.strip(".,"), text)]
+            # el reconocedor a veces lo da en minúscula («castro vidal»): valen las palabras que no son de relleno
+            ws = [w.strip(".,?!") for w in text.split() if w.strip(".,?!").isalpha() and fold(w.strip(".,?!")) not in FILLER]
             if len(ws) >= 2:
-                s.reg["first_surname"], s.reg["second_surname"] = ws[-2], ws[-1]
+                s.reg["first_surname"], s.reg["second_surname"] = (w[:1].upper() + w[1:] for w in ws[-2:])
         if ask == "national_id" or fresh or ex.get("national_id"):
             said_id = ex.get("national_id")
             coded = spoken_id(text)

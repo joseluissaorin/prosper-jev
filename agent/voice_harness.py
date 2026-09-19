@@ -202,6 +202,12 @@ FALLBACK = {"given": "id", "surnames": "id", "dni": "id", "dob": "id", "phone": 
             "need": "open"}
 
 
+def readback_ok(agent_text: str, exp: dict) -> bool:
+    a = agent_text.lower()
+    email = exp["email"].replace(".", " dot ").replace("@", " at ")
+    return exp["given"].lower() in a and email in a
+
+
 def pick(agent_text: str, lines: dict) -> str:
     """Contesta a la PREGUNTA final del agente (la última frase con «?»), no a cualquier palabra de su turno."""
     sents = [x.strip() for x in re.split(r"(?<=[.?!])\s+", agent_text) if x.strip()]
@@ -403,6 +409,11 @@ class Call:
                     await asyncio.sleep(silence_after[1])
                     silence_after = None
                 key = pick(agent, c["lines"])
+                # en la lectura final del alta, quien llama comprueba sus datos y corrige lo que esté mal
+                if c.get("expect_reg") and "fix" in c["lines"] and self.used.get("fix", 0) < 2 and \
+                        re.search(r"read that back|le leo los datos|what needs correcting|qué hay que corregir", agent.lower()) and \
+                        (not readback_ok(agent, c["expect_reg"]) or "correcting" in agent.lower()):
+                    key = "fix"
             await self.send(ws, {"event": "stop", "streamSid": self.stream, "stop": {"accountSid": "AC", "callSid": self.sid}})
             await asyncio.sleep(0.5)
             for t in tasks:

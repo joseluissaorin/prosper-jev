@@ -23,6 +23,7 @@ CLIENT = genai.Client(api_key=_key())
 STT_MODEL = os.environ.get("STT_MODEL", "gemini-3.5-transcribe-live")
 TTS_MODEL = os.environ.get("TTS_MODEL", "gemini-3.1-flash-live-preview")
 VOICE = os.environ.get("VOICE", "Kore")
+FALLBACK_TTS_MODEL = os.environ.get("FALLBACK_TTS_MODEL", "gemini-3.1-flash-tts-preview")
 CACHE = Path(__file__).parent / "cache" / "tts"
 CACHE.mkdir(parents=True, exist_ok=True)
 
@@ -436,48 +437,81 @@ class Mouth:
         return r
 
     async def _render(self, k: str, r: Render):
+        """Sesión del pool → si falla ANTES de sonar, sesión nueva → si también, TTS no en directo. Una sesión
+        del pool puede llevar minutos abierta y el servidor la aborta (1008): nunca debe quedar la línea muda."""
         async with self.sem:
-            cm = None
-            try:
-                cm, s = await self._take()
-                asyncio.create_task(self._refill())
-                await s.send_client_content(turns=types.Content(role="user", parts=[types.Part(text=r.text)]), turn_complete=True)
-                async for m in s.receive():
-                    sc = m.server_content
-                    if m.data:
-                        await r.add(m.data)
-                    if sc and sc.output_transcription and sc.output_transcription.text:
-                        r.heard += sc.output_transcription.text
-                    if sc and sc.turn_complete:
-                        break
-                sim = difflib.SequenceMatcher(None, clinic.fold(r.text), clinic.fold(r.heard)).ratio() if r.heard else 1.0
-                r.fidelity = round(sim, 2)
-                # La transcripción de control a veces se corta aunque el audio esté entero: se mira también
-                # la duración frente a la esperada (~14 caracteres por segundo).
-                dur = sum(len(c) for c in r.chunks) / 48000
-                expected = len(r.text) / 14
-                r.duration = round(dur, 2)
-                good = bool(r.chunks) and (sim >= 0.75 or dur >= 0.75 * expected)
-                if good:
-                    (CACHE / f"{k}.pcm").write_bytes(b"".join(r.chunks))
-                    with open(CACHE / "index.jsonl", "a") as f:
-                        f.write(json.dumps({"k": k, "text": r.text, "fidelity": r.fidelity}, ensure_ascii=False) + "\n")
-                else:
-                    log.warning("boca: lectura poco fiel (%.2f, %.1fs de %.1fs): %r → %r", sim, dur, expected, r.text, r.heard)
-                await r.finish(ok=bool(r.chunks))
-                if not good and not getattr(r, "retried", False):
-                    # se vuelve a sintetizar en segundo plano para la caché; esta vez ya ha sonado
-                    self.renders.pop(k, None)
-                    again = Render(r.text)
-                    again.retried = True
-                    self.renders[k] = again
-                    asyncio.create_task(self._render(k, again))
-            except Exception as e:  # noqa: BLE001
-                log.warning("boca: error: %s", e)
-                await r.finish(ok=False)
-            finally:
-                if cm:
-                    asyncio.create_task(self._close(cm))
+            for attempt in ("pool", "nueva", "tts"):
+                try:
+                    if attempt == "tts":
+                        await self._render_tts(r)
+                    else:
+                        await self._render_live(k, r, fresh=attempt == "nueva")
+                    return
+                except Exception as e:  # noqa: BLE001
+                    log.warning("boca (%s): error: %s", attempt, e)
+                    if r.chunks:          # ya ha empezado a sonar: no se puede empezar de nuevo
+                        await r.finish(ok=True)
+                        return
+            await r.finish(ok=False)
+
+    async def _render_live(self, k: str, r: Render, fresh: bool):
+        cm = None
+        try:
+            if fresh:
+                cm, s, _ = await asyncio.wait_for(self._connect(), timeout=5)
+            else:
+                cm, s = await asyncio.wait_for(self._take(), timeout=5)
+            asyncio.create_task(self._refill())
+            await s.send_client_content(turns=types.Content(role="user", parts=[types.Part(text=r.text)]), turn_complete=True)
+            async for m in s.receive():
+                sc = m.server_content
+                if m.data:
+                    await r.add(m.data)
+                if sc and sc.output_transcription and sc.output_transcription.text:
+                    r.heard += sc.output_transcription.text
+                if sc and sc.turn_complete:
+                    break
+            if not r.chunks:
+                raise RuntimeError("la sesión terminó sin audio")
+            sim = difflib.SequenceMatcher(None, clinic.fold(r.text), clinic.fold(r.heard)).ratio() if r.heard else 1.0
+            r.fidelity = round(sim, 2)
+            # La transcripción de control a veces se corta aunque el audio esté entero: se mira también
+            # la duración frente a la esperada (~14 caracteres por segundo).
+            dur = sum(len(c) for c in r.chunks) / 48000
+            expected = len(r.text) / 14
+            r.duration = round(dur, 2)
+            good = sim >= 0.75 or dur >= 0.75 * expected
+            if good:
+                (CACHE / f"{k}.pcm").write_bytes(b"".join(r.chunks))
+                with open(CACHE / "index.jsonl", "a") as f:
+                    f.write(json.dumps({"k": k, "text": r.text, "fidelity": r.fidelity}, ensure_ascii=False) + "\n")
+            else:
+                log.warning("boca: lectura poco fiel (%.2f, %.1fs de %.1fs): %r → %r", sim, dur, expected, r.text, r.heard)
+            await r.finish(ok=True)
+            if not good and not getattr(r, "retried", False):
+                # se vuelve a sintetizar en segundo plano para la caché; esta vez ya ha sonado
+                self.renders.pop(k, None)
+                again = Render(r.text)
+                again.retried = True
+                self.renders[k] = again
+                asyncio.create_task(self._render(k, again))
+        finally:
+            if cm:
+                asyncio.create_task(self._close(cm))
+
+    async def _render_tts(self, r: Render):
+        """Último recurso: TTS no en directo (tarda más en empezar, pero suena). PCM a 24 kHz como la boca."""
+        cfg = types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(voice_config=types.VoiceConfig(prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=VOICE))))
+        res = await asyncio.wait_for(CLIENT.aio.models.generate_content(
+            model=FALLBACK_TTS_MODEL, contents=f"Read aloud exactly, in a warm professional tone: {r.text}", config=cfg), timeout=12)
+        data = b"".join(p.inline_data.data for p in res.candidates[0].content.parts if p.inline_data and p.inline_data.data)
+        if not data:
+            raise RuntimeError("TTS sin audio")
+        for i in range(0, len(data), 9600):
+            await r.add(data[i:i + 9600])
+        await r.finish(ok=True)
 
     async def _refill(self):
         if self.pool.qsize() < self.pool_size:
