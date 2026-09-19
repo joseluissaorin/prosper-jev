@@ -654,8 +654,14 @@ class Conv:
         if hit:
             shadow, task, t0, partial = hit
             try:
-                # el turno real espera a la especulación ya en marcha en vez de empezar de cero
-                outs = await asyncio.wait_for(asyncio.shield(task), timeout=8)
+                # el turno real espera a la especulación ya en marcha en vez de empezar de cero; si esa espera pasa
+                # de 150 ms, se arranca hablando mientras tanto (el silencio se nota; una marca corta, no)
+                try:
+                    outs = await asyncio.wait_for(asyncio.shield(task), timeout=0.15)
+                except asyncio.TimeoutError:
+                    if self.on_early and not self.no_confirm:
+                        self.start_filler(p)
+                    outs = await asyncio.wait_for(asyncio.shield(task), timeout=8)
             except asyncio.CancelledError:
                 # si la sombra se canceló, se planifica de nuevo; si nos cancelan a nosotros, se propaga.
                 # (Sin esto, `except Exception` no atrapaba CancelledError y el turno moría en silencio: la
