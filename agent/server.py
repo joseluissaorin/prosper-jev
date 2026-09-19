@@ -34,6 +34,9 @@ demo = importlib.util.module_from_spec(_spec)   # la tubería de voz de la demo:
 _spec.loader.exec_module(demo)
 import ulaw  # noqa: E402
 from brain import API, Brain  # noqa: E402
+from conv import Conv  # noqa: E402
+
+AGENT = os.environ.get("AGENT", "v1")      # v1: máquina de estados (brain.py) · v2: planificador con herramientas (conv.py)
 from jev import JEV  # noqa: E402
 from voice import MOUTH, make_ears  # noqa: E402
 
@@ -74,6 +77,12 @@ def english_phrases() -> list[tuple[str, str]]:
             continue
         for lang, vs in by_lang.items():
             out += [(v, lang) for v in vs if "{" not in v]
+    if AGENT == "v2":
+        import conv as C
+        out += [(v, lang) for d in C.ACK.values() for lang, v in d.items()]
+        out += [(v, lang) for lang, v in C.SORRY.items() if lang in ("en", "es", "ca")]
+        out += [(v, lang) for lang, v in C.EMERGENCY.items() if lang in ("en", "es", "ca")]
+        out += [(C.GREET.format(dp=dp), "en") for dp in ("morning", "afternoon", "evening")]
     return out
 
 
@@ -252,7 +261,9 @@ class TwilioCall(demo.VoiceCall):
         self.stream_sid = st.get("streamSid", "")
         self.call_sid = st.get("callSid") or (st.get("customParameters") or {}).get("call_id", "")
         frm = (st.get("customParameters") or {}).get("from_number")
-        self.call = Brain(call_id=self.call_sid, from_number=frm, stream_sid=self.stream_sid)
+        self.call = (Conv if AGENT == "v2" else Brain)(call_id=self.call_sid, from_number=frm, stream_sid=self.stream_sid)
+        if hasattr(self.call, "on_early"):
+            self.call.on_early = self.early_ack
         HUB.active[self.call_sid] = {"call_id": self.call_sid, "from_number": frm, "started": time.time()}
         await self.emit("call_started", call_id=self.call_sid, from_number=frm)
         # el saludo sale ya; la ficha de la línea y el oído se preparan en paralelo
@@ -312,6 +323,20 @@ class TwilioCall(demo.VoiceCall):
             await self.send_json({"event": "media", "streamSid": self.stream_sid, "media": {"payload": base64.b64encode(buf).decode()}})
         await self.send_json({"event": "mark", "streamSid": self.stream_sid, "mark": {"name": act[:40] or "say"}})
         await self.emit("voice", source=r.source or ("caché" if r.cached else ""), first_ms=r.first_ms, gaps=gaps, text=text[:80])
+
+    def early_ack(self, text: str):
+        """Acuse del planificador («Un momento, lo miro») mientras trabajan las herramientas: suena ya, y la respuesta
+        espera a que termine en vez de cortarlo."""
+        self.ack_task = self.spawn(self.speak_outs([{"kind": "say", "text": text, "act": "ack"}]))
+
+    async def speak_outs(self, outs: list[dict]):
+        ack = getattr(self, "ack_task", None)
+        if ack is not None and ack is not asyncio.current_task() and not ack.done():
+            try:
+                await asyncio.shield(ack)
+            except Exception:  # noqa: BLE001
+                pass
+        await super().speak_outs(outs)
 
     async def maybe_barge(self, full: str, p):
         before = self.speak_task and not self.speak_task.done()

@@ -52,6 +52,11 @@ EMERGENCY = {"en": "This sounds like an emergency. Please hang up and call one o
              "eu": "Larrialdi bat dirudi. Eskegi eta deitu orain bertan bat bat bira."}
 SORRY = {"en": "Sorry, could you say that again?", "es": "Perdone, ¿me lo puede repetir?", "ca": "Perdoni, m’ho pot repetir?",
          "gl": "Perdoe, pode repetilo?", "eu": "Barkatu, errepikatuko al didazu?"}
+# acuses cortos (ya en la caché de voz) que tapan lo que tarda una herramienta, como haría una persona
+ACK = {"identify_patient": {"en": "Let me pull up the record.", "es": "Un momento, que busco la ficha.", "ca": "Un moment, que busco la fitxa."},
+       "find_slots": {"en": "Let me have a look.", "es": "A ver, déjeme mirar.", "ca": "A veure, deixi’m mirar."},
+       "list_appointments": {"en": "Let me check.", "es": "Un momento, lo miro.", "ca": "Un moment, ho miro."},
+       "nearest_site": {"en": "Let me see which one is closest.", "es": "A ver cuál le queda más cerca.", "ca": "A veure quina li queda més a prop."}}
 GREET = "Good {dp}, Clínica Arenal, you're through to reception. How can I help?"
 TERMINAL = {"confirm_booking", "confirm_cancellation", "confirm_registration", "decline", "end_call"}
 WD_EN = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
@@ -156,6 +161,7 @@ class Conv:
         self._spec: dict = {}
         self._effects: list = []
         self._p: P | None = None
+        self.on_early = None          # el servidor de voz lo fija: habla un acuse mientras trabajan las herramientas
         self.so_used = True
         self.no_confirm = False
         self.audio = b""
@@ -459,6 +465,14 @@ class Conv:
             if not calls:
                 events.append(self._log("planner", step=step, ms=ms, said=text[:200]))
                 return text, ended, events
+            slow = [fc.name for fc in calls if fc.name in ACK]
+            if step == 0 and slow and self.on_early and not self._dry and not text:
+                ack = ACK[slow[0]].get(self.lang3(), ACK[slow[0]]["en"])
+                try:
+                    self.on_early(ack)
+                    events.append(self._log("ack", text=ack))
+                except Exception:  # noqa: BLE001
+                    pass
             results = []
             for fc in calls:
                 args = dict(fc.args or {})
@@ -494,6 +508,7 @@ HOW YOU SPEAK (a phone call: everything you write is spoken aloud)
 - When you call confirm_booking, confirm_cancellation, confirm_registration, decline or end_call, write what you say in the SAME
   response (e.g. "Done, you're booked for … Anything else?"); if the tool then reports an error you will be asked again.
 - Identify with the full name AND an identifier; ask for both together.
+- While you use tools the system may already have said a short "one moment, let me check": do not say it again.
 
 WHAT YOU CAN DO (only through the tools: they are the only source of truth; never invent a time, doctor, id or rule)
 1. Work out what the caller needs and WHO it is for. If it is for someone else (a child, parent, grandchild, someone they care for), the
