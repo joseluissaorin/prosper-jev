@@ -166,6 +166,17 @@ def grounded(name_part: str, text: str) -> bool:
     return bool(words) and all(f" {w} " in t for w in words)
 
 
+GREET_WORDS = {"hello", "hi", "hey", "hiya", "hola", "buenas", "buenos", "bon", "bona", "hallo", "morning", "afternoon", "evening"}
+GREET_FILL = GREET_WORDS | {"good", "there", "dias", "tardes", "noches", "dia", "tarda", "yes", "yeah", "si", "oh", "um", "uh", "anyone",
+                            "is", "this", "the", "clinic", "clinica", "arenal", "reception", "can", "you", "hear", "me", "ok", "okay"}
+
+
+def is_greeting(text: str) -> bool:
+    """Solo un saludo, sin petición: «Hello.», «Hi there», «¿Hola?», «Good afternoon, is this the clinic?»."""
+    ws = "".join(ch if ch.isalnum() else " " for ch in fold(text)).split()
+    return 0 < len(ws) <= 6 and any(w in GREET_WORDS for w in ws) and all(w in GREET_FILL for w in ws)
+
+
 # relleno que no es un apellido cuando se piden los apellidos
 FILLER = {"my", "surnames", "surname", "are", "is", "its", "it", "s", "and", "the", "yes", "sure", "they", "them", "last", "names",
           "name", "family", "mis", "apellidos", "son", "y", "els", "meus", "cognoms", "i", "sorry", "oh", "um", "uh", "well", "so", "ok", "okay"}
@@ -506,6 +517,14 @@ class Brain:
         # 3. despedida
         if s.pending == "anything_else" and act == "reject" and ac >= 0.6:
             return out + await self.goodbye()
+
+        # 4a. un saludo a secas («Hello.», «¿Hola?»): se saluda y se pregunta en qué ayudar, o se confirma que seguimos aquí
+        if is_greeting(text):
+            if not s.intent:
+                return out + [self._text({"en": "Hello! How can I help you today?", "es": "¡Hola! ¿En qué puedo ayudarle?",
+                                          "ca": "Hola! En què el puc ajudar?"}.get(s.lang, "Hello! How can I help you today?"), "greet_back")]
+            return out + [self._text({"en": "Yes, I'm here.", "es": "Sí, le escucho.", "ca": "Sí, l’escolto."}.get(s.lang, "Yes, I'm here."), "here")] \
+                + await self.advance(reprompt=True)
 
         # 4. no se entiende
         if act == "unclear" and ac >= 0.5:

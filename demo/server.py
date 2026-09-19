@@ -557,7 +557,8 @@ class VoiceCall:
         else:
             await self.emit("log", msg="se reutiliza el juicio del parcial (0 ms)")
         act, c = p.act
-        if not typed and act == "backchannel" and c >= 0.6:
+        greeting = getattr(__import__(type(self.call).__module__), "is_greeting", lambda t: False)(full) if self.call else False
+        if not typed and act == "backchannel" and c >= 0.6 and not greeting:
             self.segments = []
             await self.emit("log", msg="muletilla: no se responde")
             return
