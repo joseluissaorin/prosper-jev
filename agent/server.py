@@ -116,8 +116,10 @@ async def health():
 @app.get("/api/calls")
 async def calls():
     items = []
-    for f in sorted(CALLS.glob("*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:100]:
+    for f in sorted(CALLS.glob("CA*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:100]:
         r = json.loads(f.read_text())
+        if not isinstance(r, dict):
+            continue
         items.append({k: r.get(k) for k in ("call_id", "outcome", "reason", "language", "duration_s", "patient_id", "from_number", "ended_by")})
     return {"active": list(HUB.active.values()), "past": items}
 
@@ -128,6 +130,11 @@ async def call_detail(cid: str):
     if f.exists():
         return JSONResponse(json.loads(f.read_text()))
     return JSONResponse({"call_id": cid, "live": True, "events": HUB.recent.get(cid, [])})
+
+
+@app.get("/api/active")
+async def active():
+    return list(HUB.active.values())
 
 
 @app.get("/api/events/{cid}")
