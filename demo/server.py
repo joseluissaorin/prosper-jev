@@ -20,6 +20,7 @@ import copy
 import difflib
 import json
 import logging
+import os
 import re
 import time
 import unicodedata
@@ -46,6 +47,9 @@ CALLS = HERE / "calls"
 CALLS.mkdir(exist_ok=True)
 
 
+# Las dos reglas de cierre rápido (respuesta ya hecha, punto final del oído) mejoran la latencia y EMPEORAN el
+# acierto: 41/50 → 35/50 y 34/50 en dos rondas seguidas. Quedan apagadas hasta que alguna variante pase las 50.
+RAPIDO = os.environ.get("CIERRE_RAPIDO") == "1"
 PUNTO_FINAL = re.compile(r"[.?!…]['\"”»)]?\s*$")
 _CIFRA_FINAL = re.compile(r"(?:\d|[-–—])\s*[.,]?\s*$")
 _LETRA_SUELTA = re.compile(r"\b[a-zA-Z]\s*[.,]?\s*$")
@@ -53,10 +57,10 @@ _LETRA_SUELTA = re.compile(r"\b[a-zA-Z]\s*[.,]?\s*$")
 
 def colgando(texto: str) -> bool:
     """¿Se ha quedado a medias una lectura de cifras? Acaba en cifra, en el guion con que el transcriptor marca un
-    corte, o en una letra suelta PERO solo si viene deletreando algo con números (si no, cualquier «y» final del
-    español haría esperar de más a todos los turnos)."""
+    corte, o en una letra suelta (que es como llega un parcial cortado a mitad de palabra, y también como se
+    deletrea un DNI). Estrechar esto para ganar latencia costó siete aciertos de cincuenta: se deja ancho."""
     cola = texto[-18:]
-    return bool(_CIFRA_FINAL.search(cola) or (_LETRA_SUELTA.search(cola) and re.search(r"\d", cola)))
+    return bool(_CIFRA_FINAL.search(cola) or _LETRA_SUELTA.search(cola))
 
 
 
@@ -419,12 +423,12 @@ class VoiceCall:
                 # 0,1 s de silencio es una respiración a mitad de frase, no el final del turno: con esos umbrales
                 # la ronda 15 cayó de 41 a 35 aciertos de 50. Con 0,25 s de silencio y el texto quieto 0,3 s se
                 # mantiene casi toda la ganancia y ya no se corta a nadie a media frase.
-                listo = not cuelga and stable >= 0.3 and silence >= 0.25 and self.plan_listo(full)
+                listo = RAPIDO and not cuelga and stable >= 0.3 and silence >= 0.25 and self.plan_listo(full)
                 # El oído pone el punto justo cuando da la frase por cerrada, y eso llega ~300 ms antes que el
                 # juicio de Jev. Si el parcial termina en punto (o en interrogación o exclamación) y lleva quieto
                 # un momento, el turno se cierra con esa señal: es determinista y no cuesta nada. Lo que venga
                 # después, si quien llama seguía hablando, lo recoge deshacer y unir.
-                puntuado = not cuelga and stable >= 0.18 and silence >= 0.15 and PUNTO_FINAL.search(full)
+                puntuado = RAPIDO and not cuelga and stable >= 0.18 and silence >= 0.15 and PUNTO_FINAL.search(full)
                 if (listo
                         or puntuado
                         or silence >= (1.8 if cuelga else 1.3)
