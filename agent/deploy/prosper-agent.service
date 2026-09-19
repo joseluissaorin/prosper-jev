@@ -5,9 +5,11 @@ After=network-online.target
 [Service]
 WorkingDirectory=%h/Dev/prosper-jev/agent
 EnvironmentFile=%h/.config/prosper-agent.env
-ExecStart=%h/Dev/prosper-jev/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 7860 --log-level info
+ExecStart=%h/Dev/prosper-jev/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 7860 --log-level info --timeout-graceful-shutdown 3
 Restart=always
 RestartSec=2
+# las sesiones abiertas con Gemini no deben bloquear un reinicio
+TimeoutStopSec=8
 
 [Install]
 WantedBy=default.target
