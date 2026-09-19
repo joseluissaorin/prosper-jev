@@ -33,14 +33,15 @@ from google.genai import types
 
 import leer
 import say as S
-from brain import API, DATE_KINDS, OOS, P, RED_FLAGS, WEEKDAYS, _hav, fold, hours_text, name_sim, spoken_id
+from brain import API, DATE_KINDS, LINE_LANGS, OOS, P, RED_FLAGS, SALUDO, WEEKDAYS, _hav, fold, hours_text, name_sim, remember_line_language, spoken_id
 from jev import JEV, choice, noul
 from prosper_api import MADRID, ApiError, normalize_national_id, parse_slot
 from system2 import CLIENT as GEMINI
 
 PLANNER_MODEL = os.environ.get("PLANNER_MODEL", "gemini-3.5-flash-lite")
 SUBMIT = os.environ.get("SUBMIT", "1") == "1"
-LANGS = {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque"}
+LANGS = {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque", "fr": "French", "de": "German", "it": "Italian",
+         "pt": "Portuguese", "ro": "Romanian", "nl": "Dutch", "pl": "Polish", "ru": "Russian", "uk": "Ukrainian", "ar": "Arabic", "zh": "Chinese"}
 COVERAGE = ("specialty_not_covered", "location_not_covered", "insurer_referral_required", "allowance_exhausted", "provider_not_in_network")
 REASONS = ["not_eligible_age", "referral_required", "provider_not_in_network", "specialty_not_covered", "location_not_covered",
            "insurer_referral_required", "allowance_exhausted", "provider_on_leave", "location_hours", "type_not_offered", "patient_history",
@@ -227,11 +228,44 @@ class Conv:
 
     async def begin(self) -> list[dict]:
         await self.cat()
-        return [self._log("line", from_number=self.s.from_number, brain="v2", model=PLANNER_MODEL)]
+        self._line = []
+        if self.s.from_number:
+            try:
+                self._line = await API.directory(phone=self.s.from_number)
+            except Exception:  # noqa: BLE001
+                self._line = []
+        return [self._log("line", from_number=self.s.from_number, brain="v2", model=PLANNER_MODEL, matches=[m["patient_id"] for m in self._line])]
+
+    def line_language(self) -> tuple[str | None, str]:
+        """El idioma más probable antes de que hable: el de sus llamadas anteriores, el de su ficha o el del prefijo."""
+        num = "".join(c for c in (self.s.from_number or "") if c.isdigit() or c == "+")
+        if num:
+            mem = LINE_LANGS.get(num[-9:])
+            if mem in ("en", "es", "ca"):
+                return mem, "memoria de la línea"
+            for m in getattr(self, "_line", []) or []:
+                note = fold(m.get("note") or "")
+                if "catalan" in note or "catala" in note:
+                    return "ca", "ficha"
+            if num.startswith("+") and not num.startswith("+34"):
+                return "en", "prefijo extranjero"
+        return None, "desconocido"
 
     def opening(self) -> list[dict]:
         h = self.s.t0.hour
-        text = GREET.format(dp="morning" if h < 14 else ("afternoon" if h < 20 else "evening"))
+        dp = "morning" if h < 14 else ("afternoon" if h < 20 else "evening")
+        lang, why = self.line_language()
+        if lang == "es":
+            text = f"Clínica Arenal, {SALUDO['es'][dp]}. ¿En qué puedo ayudarle?"
+        elif lang == "ca":
+            text = f"Clínica Arenal, {SALUDO['ca'][dp]}. En què el puc ajudar?"
+        elif lang == "en":
+            text = GREET.format(dp=dp)
+        else:
+            text = f"Clínica Arenal, {SALUDO['es'][dp]}, good {dp}."       # no se sabe: bilingüe y a escuchar
+        if lang:
+            self.s.lang = lang
+        self._log("greet_lang", lang=lang or "es+en", why=why)
         self.s.msgs.append(types.Content(role="model", parts=[types.Part(text=text)]))
         return [{"kind": "say", "text": text, "act": "greet"}]
 
@@ -266,8 +300,7 @@ class Conv:
                             "afternoon": "in the afternoon (from 2 pm)", "any": "no preference stated"}),
             "says_goodbye": noul("Does `caller` say goodbye, thank-you-and-bye, or that they need nothing else?"),
             "wants_register": noul("Does the caller say they are new to the clinic, not on file, or want to be registered as a new patient?"),
-            "lang": choice("Which language is `caller` MAINLY in? Ignore isolated words from another language and names.",
-                           {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque", "other": "Other"}),
+            "lang": choice("Which language is `caller` MAINLY in? Ignore isolated words from another language and names.", LANGS | {"other": "Other"}),
         }
 
     async def perceive(self, text: str, spec: bool = False) -> P:
@@ -396,11 +429,20 @@ class Conv:
         s = self.s
         lg, lc = p.c("lang")
         words = len(text.split())
+        if not s.lang_locked and words < 4:
+            t0 = fold(text)
+            quick = "ca" if re.search(r"\b(bon dia|bona tarda|bona nit|si us plau)\b", t0) else \
+                "es" if re.search(r"\b(hola|buenas|buenos dias|quisiera|queria|necesito)\b", t0) else \
+                "en" if re.search(r"\b(hello|hi|good (morning|afternoon|evening))\b", t0) else None
+            if quick:
+                s.lang = quick                       # un «Hola» a secas ya dice en qué idioma contestar
         if lg in LANGS and lc >= 0.75 and words >= 3:
             if not s.lang_locked or (lg != s.lang and lc >= 0.9 and words >= 5):
                 if lg != s.lang:
                     self._log("lang", lang=lg, conf=lc)
                 s.lang, s.lang_locked = lg, True
+                if not self._dry:
+                    remember_line_language(s.from_number, lg)
 
     async def prelookup(self, text: str) -> tuple[list[str], list[dict]]:
         s = self.s
