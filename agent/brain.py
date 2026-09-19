@@ -691,7 +691,17 @@ class Brain:
         # confirmaciones
         if s.pending == "confirm_book" and s.offer:
             accepts = p.n("accepts_offer")
-            if (act == "confirm" and ac >= 0.8) or (accepts >= 0.8 and act not in ("reject", "correct")):
+            # la aceptación manda cuando Jev la ve clara («I mean Dr. Sáez, the GP. Yes, please book Monday at 9» sale
+            # como «corrección», pero acepta con 0,93); una confirmación tibia vale si además acepta
+            accepted = accepts >= 0.85 or (act == "confirm" and ac >= 0.8) or (act == "confirm" and ac >= 0.6 and accepts >= 0.6)
+            if act == "ask_question" and ac >= 0.6 and accepts < 0.6:
+                # una pregunta sobre la oferta («¿el Dr. Sáez es el de cabecera?»): se contesta y se vuelve a preguntar
+                ans = await self.answer_question(f"{text}\n(The receptionist had just offered: {s.last_agent})")
+                out.append(self._log("system2", question=text, answer=ans))
+                out.append(self._text(ans, "question"))
+                out.append(self._text({"en": "Shall I book it for you?", "es": "¿Se la reservo?", "ca": "Li reservo?"}.get(s.lang, "Shall I book it for you?"), "offer_again"))
+                self._stop = True
+            elif accepted:
                 out += await self.commit_offer()
                 if act == "ask_question" and p.n("offscript") >= 0.5:
                     # «sí, y ¿por qué entrada?»: reservado, y se contesta la pregunta
@@ -699,7 +709,7 @@ class Brain:
                     out.append(self._log("system2", question=text, answer=ans))
                     out.append(self._text(ans, "question"))
                 self._stop = True
-            elif act in ("reject", "correct") or (accepts < 0.3 and (p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"))):
+            elif act == "reject" or (act == "correct" and accepts < 0.5) or (accepts < 0.3 and (p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"))):
                 sl = s.offer["slot"]
                 s.rejected = getattr(s, "rejected", []) + [(sl["provider_id"], sl["start_time"])]
                 s.offer = None
@@ -907,7 +917,10 @@ class Brain:
                 s.site = site
                 out.append(self._log("nearest_site", address=s.address, site=site))
         if s.offer and s.pending == "confirm_book":
-            return out + [self._text(s.last_agent, "reoffer")]
+            # se repite SOLO la oferta (antes se repetía la última intervención entera, saludo incluido)
+            sl = s.offer["slot"]
+            return out + [self._say("reoffer", when=S.when(s.lang, parse_slot(sl["start_time"])),
+                                    provider=self.prov(sl["provider_id"])["name"], site=self.site_name(sl["location_id"]))]
         res = await self.search()
         out += res
         return out
