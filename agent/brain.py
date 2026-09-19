@@ -165,6 +165,14 @@ def grounded(name_part: str, text: str) -> bool:
     return bool(words) and all(f" {w} " in t for w in words)
 
 
+# palabras con mayúscula que no son nombres de persona (en inglés los días y los meses la llevan)
+NOT_NAMES = {"i", "i'm", "i'd", "i'll", "i've", "gp", "dni", "nie", "ok", "okay", "arenal", "centro", "norte", "sur", "clinica",
+             "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "january", "february", "march",
+             "april", "may", "june", "july", "august", "september", "october", "november", "december",
+             "lunes", "martes", "miercoles", "jueves", "viernes", "sabado", "domingo", "dilluns", "dimarts", "dimecres",
+             "dijous", "divendres", "dissabte", "diumenge", "sanitas", "adeslas", "asisa", "axa", "dkv", "mapfre", "caser", "cigna"}
+
+
 @dataclass
 class P:
     """Percepción de un turno: Jev + extracción."""
@@ -174,6 +182,7 @@ class P:
     ms: int = 0
     ms_ex: int = 0
     hedged: bool = False
+    ex_task: object = field(default=None, repr=False, compare=False)   # extracción aún en curso (percepción especulativa)
 
     def c(self, k):
         a = self.raw.get(k)
@@ -311,20 +320,30 @@ class Brain:
 
     # ------------------------------------------------------------ percepción
 
-    async def perceive(self, text: str) -> P:
+    def extraction(self, text: str) -> asyncio.Task:
+        """La extracción de un texto, una sola vez: la especulación la lanza y el turno definitivo la recoge."""
+        cache = self.__dict__.setdefault("_ex_cache", {})
+        key = (self.s.last_agent, "".join(ch for ch in fold(text) if ch.isalnum()))
+        if key not in cache:
+            cache[key] = asyncio.create_task(self.extract(text))
+        return cache[key]
+
+    async def perceive(self, text: str, spec: bool = False) -> P:
+        """Jev y, si hace falta, la extracción en paralelo. En la especulación no se espera a la extracción
+        (Flash-Lite tarda ~800 ms y Jev ~300): queda en marcha y el turno la recoge en handle()."""
         c = await self.cat()
         jq = self.questions(c)
         state = {"receptionist_last": self.s.last_agent, "recent_turns": self.s.history[-6:], "caller": text}
         if self.s.pending == "which_appt" and self.s.appts:
             state["appointments"] = {a["appointment_id"]: self.appt_desc(a) for a in self.s.appts}
         jt = asyncio.create_task(JEV.ask(state, jq))
-        et = asyncio.create_task(self.extract(text)) if self.needs_extraction(text) else None
+        et = self.extraction(text) if self.needs_extraction(text) else None
         try:
             r = await jt
         except Exception:  # noqa: BLE001
-            if et:
-                et.cancel()
             return P(text=text, raw={"act": {"type": "choice", "choice": "unclear", "confidence": 1.0, "probabilities": {}}}, ex={}, ms=-1)
+        if spec and et and not et.done():
+            return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"], ex_task=et)
         ex, ms_ex = (await et) if et else ({}, 0)
         return P(text=text, raw=r["answers"], ex=ex, ms=r["ms"], ms_ex=ms_ex, hedged=r["hedged"])
 
@@ -365,10 +384,10 @@ class Brain:
         t = fold(text)
         words = text.replace(",", " ").replace(".", " ").split()
         # palabras con mayúscula que no abren la frase ni son muletillas: probablemente un nombre propio
-        names = [w for i, w in enumerate(words) if w[:1].isupper() and i > 0 and fold(w) not in ("i", "i'm", "i'd", "gp", "dni", "nie", "ok")]
+        names = [w for i, w in enumerate(words) if w[:1].isupper() and i > 0 and fold(w) not in NOT_NAMES]
         return (s.intent == "register" or s.pending.startswith(("identity", "reg_", "not_found"))
                 or any(ch.isdigit() for ch in text) or bool(names)
-                or any(w in t for w in ("calle", "street", "avenida", "plaza", "road", " dr", "doctor", "dra", "born", "birth", "@", " at "))
+                or any(w in t for w in ("calle", "street", "avenida", "plaza", "road", " dr", "doctor", "dra", "born", "birth", "@"))
                 or len(text.split()) > 18)
 
     async def extract(self, text: str) -> tuple[dict, int]:
@@ -408,6 +427,8 @@ class Brain:
             shadow.s, shadow.catalog, shadow._dry = copy.deepcopy(self.s), self.catalog, True
             return await shadow.handle(text, p)
         s = self.s
+        if p.ex_task is not None and not p.ex and not getattr(self, "_dry", False):
+            p.ex, p.ms_ex = await p.ex_task
         s.history.append(f"Caller: {text}")
         out = [self._log("perception", text=text, ms=p.ms, ms_ex=p.ms_ex,
                          j={k: (v.get("choice"), v.get("confidence")) if v["type"] == "choice" else v.get("noul") for k, v in p.raw.items()},

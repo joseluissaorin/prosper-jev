@@ -177,8 +177,8 @@ class TwilioCall(demo.VoiceCall):
         self.t_connect = time.time()
 
     # la percepción es la del cerebro de Prosper (Jev + extracción)
-    async def perceive(self, text: str):
-        return await self.call.perceive(text)
+    async def perceive(self, text: str, spec: bool = False):
+        return await self.call.perceive(text, spec=spec)
 
     async def decide_language(self, p, full):
         self.first_turn = False

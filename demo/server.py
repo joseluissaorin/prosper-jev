@@ -189,7 +189,7 @@ class VoiceCall:
 
     # ------------------------------------------------------------ utilidades
 
-    async def perceive(self, text: str):
+    async def perceive(self, text: str, spec: bool = False):
         return await perceive(self.call.s, text)
 
     async def emit(self, typ: str, **kw):
@@ -332,6 +332,8 @@ class VoiceCall:
 
     async def on_interim(self, tag: str, text: str):
         text = _unglue(text)
+        if not self.turn_open and self.ears and self.ears.act in self.ears.texts:
+            return      # parcial atrasado de una intervención que ya tiene su definitivo
         if self.is_echo(text):
             return
         if self.first_turn and tag == "o1" and self.call and not self.call.s.lang_locked:
@@ -403,7 +405,7 @@ class VoiceCall:
             while full:
                 if _k(full) not in self.spec and self.call:
                     try:
-                        p = await self.perceive(full)
+                        p = await self.perceive(full, spec=True)
                     except JevError:
                         full, self.spec_next = self.spec_next, None
                         continue
