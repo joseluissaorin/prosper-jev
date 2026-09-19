@@ -831,7 +831,8 @@ class ElevenMouth:
             if time.time() - self.last_use > 15:
                 await self._ping(self.max_parallel)
 
-    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24") -> Render:
+    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24", live: bool = True) -> Render:
+        """live=False (precarga): sin carrera con Gemini y con reintentos; lo que importa es que quede en disco."""
         if not self.enabled or lang not in (None, "en", "es", "ca", "gl") or fmt not in ELEVEN_FORMATS:
             return self.fallback.render(text)
         k = self.key(text, lang, fmt)
@@ -844,10 +845,10 @@ class ElevenMouth:
         if f.exists():
             r.chunks, r.done, r.cached, r.first_ms, r.source = [f.read_bytes()], True, True, 0, "elevenlabs"
             return r
-        asyncio.create_task(self._render(k, r, lang, fmt, f))
+        asyncio.create_task(self._render(k, r, lang, fmt, f, live))
         return r
 
-    async def _render(self, k: str, r: Render, lang: str | None, fmt: str, f: Path):
+    async def _render(self, k: str, r: Render, lang: str | None, fmt: str, f: Path, live: bool = True):
         """ElevenLabs primero; si a los ELEVEN_TTFB_S no ha sonado (o ha fallado), también Gemini, y gana el primero
         que da audio. El otro se cancela. Solo se guarda en disco lo de ElevenLabs que ha llegado entero."""
         win: dict[str, str | None] = {"w": None}
@@ -862,6 +863,23 @@ class ElevenMouth:
                     await r.add(b)
             return add
 
+        if not live:
+            for attempt in range(3):
+                try:
+                    await self._eleven(r.text, lang, fmt, sink("elevenlabs", fmt))
+                    break
+                except Exception as e:  # noqa: BLE001
+                    log.warning("boca ElevenLabs (precarga, intento %d): %s", attempt + 1, e)
+                    if r.chunks:
+                        break
+                    await asyncio.sleep(1 + attempt)
+            else:
+                await r.finish(ok=False)
+                self.renders.pop(k, None)
+                return
+            self._save(k, r, lang, fmt, f)
+            await r.finish(ok=True)
+            return
         tasks = {"elevenlabs": asyncio.create_task(self._eleven(r.text, lang, fmt, sink("elevenlabs", fmt)))}
         fw = asyncio.create_task(first.wait())
         try:
@@ -885,20 +903,26 @@ class ElevenMouth:
                 log.warning("boca (%s) cortada a mitad: %s", win["w"], e)
                 complete = False
             if win["w"] == "elevenlabs" and complete:
-                data = b"".join(r.chunks)
-                r.duration = round(len(data) / ELEVEN_FORMATS[fmt][1], 2)
-                expected = len(r.text) / 14
-                if 0.4 * expected <= r.duration <= 3 * expected + 2:
-                    f.write_bytes(data)
-                    with open(CACHE / "index.jsonl", "a") as fh:
-                        fh.write(json.dumps({"k": k, "text": r.text, "lang": lang, "fmt": fmt, "src": "elevenlabs"}, ensure_ascii=False) + "\n")
-                else:
-                    log.warning("boca ElevenLabs: duración rara (%.1f s para %.1f s esperados), no se guarda: %r", r.duration, expected, r.text)
+                self._save(k, r, lang, fmt, f)
+            elif win["w"] == "gemini":
+                self.renders.pop(k, None)     # la próxima vez se vuelve a pedir a ElevenLabs
             await r.finish(ok=True)
         finally:
             fw.cancel()
             if not r.done:
                 await r.finish(ok=bool(r.chunks))
+
+    def _save(self, k: str, r: Render, lang: str | None, fmt: str, f: Path):
+        """A disco solo si la duración es razonable para el texto (~14 caracteres por segundo)."""
+        data = b"".join(r.chunks)
+        r.duration = round(len(data) / ELEVEN_FORMATS[fmt][1], 2)
+        expected = len(r.text) / 14
+        if 0.4 * expected <= r.duration <= 3 * expected + 2:
+            f.write_bytes(data)
+            with open(CACHE / "index.jsonl", "a") as fh:
+                fh.write(json.dumps({"k": k, "text": r.text, "lang": lang, "fmt": fmt, "src": "elevenlabs"}, ensure_ascii=False) + "\n")
+        else:
+            log.warning("boca ElevenLabs: duración rara (%.1f s para %.1f s esperados), no se guarda: %r", r.duration, expected, r.text)
 
     async def _eleven(self, text: str, lang: str | None, fmt: str, add) -> bool:
         voice, model = self.voice_model(lang)
@@ -930,7 +954,16 @@ class ElevenMouth:
         return False   # lo de Gemini ya lo guarda su propia caché
 
     async def prewarm(self, texts: list, parallel: int = 3, fmt: str = "pcm24"):
-        await _prewarm(self, texts, parallel, fmt)
+        """Precarga sin carrera con Gemini: lo que suene en directo después debe ser la voz de ElevenLabs."""
+        sem = asyncio.Semaphore(parallel)
+
+        async def one(item):
+            t, lang = item if isinstance(item, tuple) else (item, None)
+            async with sem:
+                r = self.render(t, lang=lang, fmt=fmt, live=False)
+                async for _ in r.stream():
+                    pass
+        await asyncio.gather(*[one(t) for t in texts], return_exceptions=True)
 
 
 GEMINI_MOUTH = Mouth()
