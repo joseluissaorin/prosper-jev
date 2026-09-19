@@ -124,7 +124,9 @@ async def or_chat(system: str, msgs: list, tools: list | None, timeout: float = 
     return types.Content(role="model", parts=parts or [types.Part(text="")])
 
 
-BACKEND = os.environ.get("PLANNER_BACKEND", "openrouter")    # openrouter (Groq: ~0,35 s por paso) | gemini
+BACKEND = os.environ.get("PLANNER_BACKEND", "openrouter")
+# el «ajá» antes de cerrar el turno adelanta ~0,4 s, pero se pisa con la máquina de interrupciones: se mide antes de encenderlo
+BACKCHANNEL = os.environ.get("BACKCHANNEL", "0") == "1"    # openrouter (Groq: ~0,35 s por paso) | gemini
 
 
 async def llm_step(system: str, msgs: list, tools: list | None, timeout: float = 5.0, schema: dict | None = None) -> types.Content:
@@ -603,7 +605,7 @@ class Conv:
         """El «ajá» en cuanto se oye que la frase ha terminado, sin esperar a cerrar el turno. Es lo que hace una
         persona al teléfono, no compromete nada (si sigue hablando, solo habremos asentido) y adelanta medio segundo
         la primera palabra del agente."""
-        if self._dry or not self.on_early or self.no_confirm:
+        if not BACKCHANNEL or self._dry or not self.on_early or self.no_confirm:
             return
         if p.n("finished", 0.0) < 0.9 or len(p.text.split()) < 3:
             return
