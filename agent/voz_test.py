@@ -101,6 +101,8 @@ class Llamada:
 
     async def decir(self, texto: str, lang: str):
         audio = await say(texto, lang)
+        # silencio real antes y después, como en una línea de teléfono: sin él el detector se queda «oyendo» ruido
+        audio = b"\xff" * 1600 + audio + b"\xff" * 4000
         self.listening, self.first_in = False, 0.0
         t0 = time.perf_counter()
         for i in range(0, len(audio), 160):
@@ -109,7 +111,7 @@ class Llamada:
                                            "media": {"payload": base64.b64encode(frame).decode()}}))
             t0 += 0.02
             await asyncio.sleep(max(0.0, t0 - time.perf_counter()))
-        fin = time.perf_counter()
+        fin = time.perf_counter() - 1.0      # el final de la voz es antes del silencio de cola que acabamos de mandar
         self.listening = True
         # esperar a que el agente empiece y termine de hablar (700 ms sin tramas)
         while time.perf_counter() - fin < 25:
