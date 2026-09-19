@@ -44,8 +44,31 @@ class Prosper:
                                    limits=httpx.Limits(max_keepalive_connections=20, max_connections=40))
         self._clinic: dict | None = None
         self.log: list[dict] = []          # cada petición, para la traza y el panel
+        # Caché corta de lecturas con deduplicación: la especulación sobre los parciales ya pide los mismos huecos
+        # (o la misma ficha) mientras la persona habla; el turno definitivo los reutiliza en vez de repetir el viaje.
+        self._cache: dict = {}
+        self.CACHE_S = float(os.environ.get("PROSPER_CACHE_S", "20"))
 
     async def _get(self, path: str, params=None) -> dict:
+        key = (path, tuple(sorted(params.items())) if isinstance(params, dict) else tuple(params or ()))
+        hit = self._cache.get(key)
+        if hit and time.time() - hit[0] < self.CACHE_S:
+            try:
+                return await asyncio.shield(hit[1])
+            except Exception:  # noqa: BLE001
+                self._cache.pop(key, None)
+        task = asyncio.ensure_future(self._get_net(path, params))
+        self._cache[key] = (time.time(), task)
+        if len(self._cache) > 500:
+            for k in [k for k, v in self._cache.items() if time.time() - v[0] > self.CACHE_S]:
+                self._cache.pop(k, None)
+        try:
+            return await asyncio.shield(task)
+        except Exception:
+            self._cache.pop(key, None)
+            raise
+
+    async def _get_net(self, path: str, params=None) -> dict:
         t0 = time.perf_counter()
         for attempt in range(3):
             try:

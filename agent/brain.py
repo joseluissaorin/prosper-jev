@@ -221,6 +221,14 @@ GREET_FILL = GREET_WORDS | {"good", "there", "dias", "tardes", "noches", "dia", 
                             "is", "this", "the", "clinic", "clinica", "arenal", "reception", "can", "you", "hear", "me", "ok", "okay"}
 
 
+def greeting_part(text: str) -> bool:
+    """¿La única franja que aparece es la de un saludo («good afternoon», «buenas tardes»)?"""
+    t = fold(text)
+    return bool(re_findall(r"\bgood (morning|afternoon|evening)\b|buenas tardes|buenos dias|bona tarda|bon dia|bones tardes", t)) and \
+        not re_findall(r"(in|on|for|during) the (morning|afternoon|evening)|(this|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday) "
+                       r"(morning|afternoon)|por la (manana|tarde)|a la tarda|al mati|de tarde|de manana|first thing", t)
+
+
 def is_greeting(text: str) -> bool:
     """Solo un saludo, sin petición: «Hello.», «Hi there», «¿Hola?», «Good afternoon, is this the clinic?»."""
     ws = "".join(ch if ch.isalnum() else " " for ch in fold(text)).split()
@@ -454,7 +462,7 @@ class Brain:
             "gives_address": noul("Does the caller give a street address or say where they are, asking for the nearest or closest clinic?"),
             "date_kind": choice("Which day does the caller ask for in `caller`?", DATE_KINDS),
             "weekday": choice("If `caller` names a day of the week for the appointment, which one?", {w: None for w in WEEKDAYS} | {"none": None}),
-            "part": choice("Which part of the day does the caller want in `caller`?", {"first_thing": "first thing / earliest in the morning",
+            "part": choice("Which part of the day does the caller want for the appointment in `caller`? A greeting like 'good afternoon' is not a preference.", {"first_thing": "first thing / earliest in the morning",
                            "morning": "in the morning (before 2 pm)", "afternoon": "in the afternoon (from 2 pm)", "any": "no preference stated"}),
             "wants_language": choice("Does the caller ask for a doctor who speaks a particular language?", {"none": None, "es": "Spanish", "ca": "Catalan", "en": "English"}),
             "insurer": choice("Which insurer or plan does the caller name in `caller`? The name may be misheard: match by sound, "
@@ -593,7 +601,14 @@ class Brain:
             elif not greet or s.intent:
                 pre_say.append(self._text({"en": "Yes, I'm here.", "es": "Sí, le escucho.", "ca": "Sí, l’escolto."}.get(s.lang, "Yes, I'm here."), "here"))
         asked = (act == "ask_question" and ac >= 0.5) or p.n("asks_question") >= 0.7
-        about_offer = s.pending == "confirm_book" and s.offer is not None
+        topic = p.c("question_topic")[0]
+        it0, ic0 = p.c("intent")
+        request = it0 in ("book", "reschedule", "cancel", "register") and ic0 >= 0.7 and p.n("gives_info") >= 0.6
+        sched = (p.c("date_kind")[0] not in (None, "none") and p.c("date_kind")[1] >= 0.6) or \
+                (p.c("part")[0] not in (None, "any") and p.c("part")[1] >= 0.6)
+        # «¿qué es lo primero que tienen?» o «¿no hay nada el sábado?» dentro de una reserva son PETICIÓN, no pregunta
+        if asked and ((s.intent in ("book", "reschedule") and sched and topic != "weekend") or (request and topic in ("other", "none", None))):
+            asked = False
         if asked and not greet:
             ans = await self.answer(text, p)
             if ans:
@@ -608,6 +623,10 @@ class Brain:
         if pre_say and not content and not s.intent:
             return out + pre_say + [self._text({"en": "How can I help you today?", "es": "¿En qué puedo ayudarle?",
                                                 "ca": "En què el puc ajudar?"}.get(s.lang, "How can I help you today?"), "ask_need")]
+        if pre_say and self._answered_q(p, act) and s.intent and s.pending != "confirm_book":
+            # solo preguntaba: se contesta y se retoma, sin tocar preferencias (el médico o la sede de la pregunta no son
+            # los de la reserva)
+            return out + pre_say + await self.advance(reprompt=True)
 
         it, ic = p.c("intent")
         # «¿Le doy de alta?» → «sí»: se empieza el alta; con datos nuevos, otro intento de identificarle
@@ -646,8 +665,27 @@ class Brain:
         nxt = await self.advance(reprompt=bool(pre_say))
         return out + logs + pre_say + says + nxt
 
+    def _answered_q(self, p: P, act: str) -> bool:
+        return act == "ask_question" and p.n("gives_info") < 0.6 and not (p.c("intent")[0] in ("book", "reschedule", "cancel") and p.c("intent")[1] >= 0.85 and not self.s.intent)
+
+    def offer_violates(self) -> bool:
+        """¿Lo que ha pedido en ESTE turno (otro día, otra franja, otra sede) contradice la oferta abierta?
+        Repetir lo mismo al aceptar («Monday at nine is fine») no la contradice; «el sábado» sí."""
+        s, o = self.s, (self.s.offer or {}).get("slot")
+        if not o or not self._changed:
+            return False
+        dt = parse_slot(o["start_time"])
+        if "day" in self._changed and s.day and dt.date().isoformat() != s.day:
+            return True
+        if "part" in self._changed and s.part and ((s.part in ("morning", "first_thing") and dt.hour >= 14) or (s.part == "afternoon" and dt.hour < 14)):
+            return True
+        if "site" in self._changed and s.site and o["location_id"] != s.site:
+            return True
+        return False
+
     async def absorb(self, text: str, p: P, act: str, ac: float) -> list[dict]:
         s, out, ex = self.s, [], p.ex
+        self._changed = set()
         # para quién
         rel, rc = p.c("relation")
         if s.relation is None and s.intent in ("book", "reschedule", "cancel"):
@@ -718,6 +756,8 @@ class Brain:
         if s.pending == "which_site" and best[0] and best[1] >= 0.35:
             s.site, s.site_unsure = best[0], None       # contestando a «¿qué sede?»: la más probable
         elif st and st != "none" and stc >= 0.6:
+            if st != s.site:
+                self._changed.add("site")
             s.site, s.site_unsure = st, None
         elif best[0] and best[1] >= 0.3 and best[0] != s.site and s.pending != "confirm_book" and self.mentions_site(text):
             # suena a una sede pero no está claro («R&L SORE», «it has to be sir»): se preguntará
@@ -735,13 +775,23 @@ class Brain:
         if dk and dk != "none" and dc >= 0.55:
             wd, _ = p.c("weekday")
             day, part = self.resolve_day(dk, wd, ex.get("appointment_date"))
+            if greeting_part(text):
+                part = None
             if day or dk == "earliest":
+                if (day.isoformat() if day else None) != s.day:
+                    self._changed.add("day")
                 s.day_kind, s.day = dk, day.isoformat() if day else None
                 if part:
+                    if part != s.part:
+                        self._changed.add("part")
                     s.part = part
                 out.append(self._log("date", date_kind=dk, weekday=wd, day=s.day, part=s.part))
         pt, ptc = p.c("part")
+        if greeting_part(text):
+            pt = None      # «Good afternoon» es un saludo, no «por la tarde»
         if pt and pt != "any" and ptc >= 0.6:
+            if pt != s.part:
+                self._changed.add("part")
             s.part = pt
         # segundo seguro
         ins, ic = p.c("insurer")
@@ -775,7 +825,8 @@ class Brain:
             accepts = p.n("accepts_offer")
             # la aceptación manda cuando Jev la ve clara («I mean Dr. Sáez, the GP. Yes, please book Monday at 9» sale
             # como «corrección», pero acepta con 0,93); una confirmación tibia vale si además acepta
-            accepted = accepts >= 0.85 or (act == "confirm" and ac >= 0.8) or (act == "confirm" and ac >= 0.6 and accepts >= 0.6)
+            accepted = (accepts >= 0.85 or (act == "confirm" and ac >= 0.8) or (act == "confirm" and ac >= 0.6 and accepts >= 0.6)) \
+                and not self.offer_violates()          # «sí, resérveme lo del sábado» ante una oferta del lunes: es otra preferencia
             if act == "ask_question" and ac >= 0.6 and accepts < 0.6:
                 # una pregunta sobre la oferta («¿el Dr. Sáez es el de cabecera?»): ya contestada en el prefijo; se repregunta corto
                 if not getattr(self, "_answered", False):
@@ -785,7 +836,7 @@ class Brain:
             elif accepted:
                 out += await self.commit_offer()     # «sí, y ¿por qué entrada?»: la pregunta ya va en el prefijo
                 self._stop = True
-            elif act == "reject" or (act == "correct" and accepts < 0.5) or (accepts < 0.3 and (p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"))):
+            elif act == "reject" or (act == "correct" and accepts < 0.5) or self.offer_violates() or (accepts < 0.3 and (p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"))):
                 sl = s.offer["slot"]
                 s.rejected = getattr(s, "rejected", []) + [(sl["provider_id"], sl["start_time"])]
                 s.offer = None

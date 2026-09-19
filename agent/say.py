@@ -44,7 +44,7 @@ def spell(s: str) -> str:
 T = {
     "greet": {"en": ["Good {daypart}, {clinic}, you're through to reception. How can I help you today?"],
               "es": ["{clinic}, buenos días. ¿En qué puedo ayudarle?"], "ca": ["{clinic}, bon dia. En què el puc ajudar?"]},
-    "ask_need": {"en": ["Of course. What can I do for you today?"], "es": ["Dígame, ¿en qué puedo ayudarle?"], "ca": ["Digui’m, en què el puc ajudar?"]},
+    "ask_need": {"en": ["What can I do for you today?"], "es": ["Dígame, ¿en qué puedo ayudarle?"], "ca": ["Digui’m, en què el puc ajudar?"]},
     "ask_identity": {"en": ["Could I take the patient's full name, and either their DNI or NIE, or the phone number on their file?"],
                      "es": ["¿Me dice el nombre completo del paciente y su DNI o NIE, o el teléfono de su ficha?"],
                      "ca": ["Em pot dir el nom complet del pacient i el seu DNI o NIE, o el telèfon de la fitxa?"]},
