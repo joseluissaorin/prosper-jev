@@ -328,6 +328,11 @@ class Brain:
 
     # ------------------------------------------------------------ percepción
 
+    def id_text(self, text: str) -> str:
+        """Al identificar, una respuesta corta completa la anterior («born 3rd of May» … «44»): se extrae de las dos."""
+        prev = self.s.ev.get("id_text", "") if self.s.pending.startswith("identity") else ""
+        return f"{prev} {text}".strip() if prev and len(text.split()) <= 5 else text
+
     def extraction(self, text: str) -> asyncio.Task:
         """La extracción de un texto, una sola vez: la especulación la lanza y el turno definitivo la recoge."""
         cache = self.__dict__.setdefault("_ex_cache", {})
@@ -347,7 +352,7 @@ class Brain:
         if self.s.pending == "which_appt" and self.s.appts:
             state["appointments"] = {a["appointment_id"]: self.appt_desc(a) for a in self.s.appts}
         jt = asyncio.create_task(JEV.ask(state, jq))
-        et = self.extraction(text) if self.needs_extraction(text) else None
+        et = self.extraction(self.id_text(text)) if self.needs_extraction(text) else None
         try:
             r = await jt
         except Exception:  # noqa: BLE001
@@ -445,6 +450,8 @@ class Brain:
         if p.ex_task is not None and not p.ex and not getattr(self, "_dry", False):
             p.ex, p.ms_ex = await p.ex_task
         self.so_used = False
+        if s.pending.startswith("identity") and not getattr(self, "_dry", False):
+            s.ev["id_text"] = self.id_text(text)[-300:]
         pre = [] if getattr(self, "_dry", False) else await self.check_digits(text, p)
         s.history.append(f"Caller: {text}")
         out = [self._log("perception", text=text, ms=p.ms, ms_ex=p.ms_ex,
@@ -478,15 +485,19 @@ class Brain:
             return out + [self._say("emergency")]
 
         # 2. lo que hay que declinar
+        # la despedida manda sobre todo lo demás (salvo a mitad de una confirmación)
+        if act == "end_call" and ac >= 0.6 and s.pending not in ("confirm_book", "confirm_cancel", "reg_confirm"):
+            return out + await self.goodbye()
         oo, oc = p.c("oos")
-        if oo and oo != "none" and oc >= 0.7:
+        # la respuesta a una pregunta de datos (mal oída a veces: «Calf roping at all?») no es una petición fuera de ámbito
+        answering = s.pending.startswith(("reg_", "identity", "which_", "not_found")) and act in ("provide_info", "unclear", "correct")
+        if oo and oo != "none" and oc >= 0.7 and not answering:
             s.oos = "out_of_scope"
+            s.pending = "anything_else"
             out.append(self.gate("límites", False, f"{oo} ({oc:.2f}): se declina sin leer datos de nadie"))
             return out + [self._say("decline"), self._say("anything_else")]
 
         # 3. despedida
-        if act == "end_call" and ac >= 0.6 and s.pending not in ("confirm_book", "confirm_cancel", "reg_confirm"):
-            return out + await self.goodbye()
         if s.pending == "anything_else" and act == "reject" and ac >= 0.6:
             return out + await self.goodbye()
 
@@ -1187,7 +1198,7 @@ class Brain:
         if ask == "surnames" and not (s.reg.get("first_surname") and s.reg.get("second_surname")):
             # el reconocedor a veces lo da en minúscula («castro vidal»): valen las palabras que no son de relleno
             ws = [w.strip(".,?!") for w in text.split() if w.strip(".,?!").isalpha() and fold(w.strip(".,?!")) not in FILLER]
-            if len(ws) >= 2:
+            if 2 <= len(ws) <= 3 and "?" not in text:
                 s.reg["first_surname"], s.reg["second_surname"] = (w[:1].upper() + w[1:] for w in ws[-2:])
         if ask == "national_id" or fresh or ex.get("national_id"):
             said_id = ex.get("national_id")

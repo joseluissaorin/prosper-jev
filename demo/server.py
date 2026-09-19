@@ -168,6 +168,7 @@ class VoiceCall:
         self.turn_open = False
         self.close_task: asyncio.Task | None = None
         self.vad_end_t = 0.0
+        self.run_t = 0.0
         self.closed_t = 0.0
         self.turn_text = False
         self.turn_pcm: list[bytes] = []
@@ -303,11 +304,13 @@ class VoiceCall:
         for kind, _ in events:
             if kind == "start":
                 self.act_start_t = time.time()
+                self.run_t = time.perf_counter()         # inicio de este tramo de voz sin pausas
                 if not self.turn_open:
                     started = await self.open_turn()
                 await self.emit("vad", state="speech", agent_speaking=self.agent_speaking)
             elif kind == "end":
                 self.t_speech_end = self.vad_end_t = time.perf_counter()
+                self.noisy = False                       # hay silencios de verdad: no es ruido continuo
                 await self.emit("vad", state="silence")
         # Con ruido de voz continuo (una tele) el detector nunca calla: el turno se reabre solo y es el texto
         # el que dice si alguien habla.
@@ -358,7 +361,10 @@ class VoiceCall:
                         or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
                         or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
                     why = f"silencio {silence:.2f} s"
-            elif self.turn_text and self.interim and ((stable >= 1.2 and fin is not None and fin >= 0.7) or stable >= 2.5):
+            # voz de fondo: el detector lleva ≥3 s oyendo voz SIN una sola pausa (una persona hace pausas; una tele no)
+            # y el texto no cambia. Con menos, es el retraso del transcriptor en una frase normal.
+            elif self.turn_text and self.interim and now - self.run_t >= 3.0 and \
+                    ((stable >= 1.5 and fin is not None and fin >= 0.7) or stable >= 3.0):
                 why = "el detector oye voz de fondo pero el texto no cambia"
                 self.noisy = True
             elif now - t_open >= 25:
