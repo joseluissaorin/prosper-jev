@@ -507,7 +507,9 @@ async def run_one(c, sem):
                 tp = time.perf_counter()
                 try:
                     p = await b.perceive(heard)
+                    tq = time.perf_counter()
                     outs = await b.handle(heard, p)
+                    th = time.perf_counter()
                     err = None
                 except Exception as e:  # noqa: BLE001
                     outs, err, p = [], repr(e)[:200], None
@@ -517,7 +519,10 @@ async def run_one(c, sem):
                         b.spoken(o["text"])
                 turns.append({"said": said, "heard": heard, "pending": pend, "act": (p.act if p else None), "agent": agent,
                               "accepts": (round(p.n("accepts_offer"), 2) if p else None), "done_before": done_before, "err": err,
-                              "ms": round((time.perf_counter() - tp) * 1000)})
+                              "ms": round((time.perf_counter() - tp) * 1000),
+                              "jev": (p.ms if p else None), "ex_ms": (p.ms_ex if p else None),
+                              "det": bool(p and p.ex.get("det")), "perceive": round((tq - tp) * 1000) if p else None,
+                              "policy": round((th - tq) * 1000) if p else None})
                 if agent:
                     hist.append(("agent", agent))
             if end or b.s.ended:
@@ -619,6 +624,12 @@ def report(res, path):
     L = [t["ms"] for r in res for t in r["turns"]]
     if L:
         print(f"\nTiempo por turno (percepción + política, sin voz): mediana {statistics.median(L):.0f} ms · p90 {sorted(L)[int(.9 * (len(L) - 1))]} ms")
+        T = [t for r in res for t in r["turns"] if t.get("perceive") is not None]
+        q = lambda xs: (f"{statistics.median(xs):.0f}/{sorted(xs)[int(.9 * (len(xs) - 1))]}" if xs else "-")
+        print("   desglose (mediana/p90 ms): Jev " + q([t["jev"] for t in T if t["jev"] and t["jev"] > 0])
+              + " · percepción total " + q([t["perceive"] for t in T]) + " · política+API " + q([t["policy"] for t in T])
+              + f" · extracción esperada en {sum(1 for t in T if t['ex_ms'])}/{len(T)} turnos ({q([t['ex_ms'] for t in T if t['ex_ms']])})"
+              + f" · lectura determinista en {sum(t['det'] for t in T)}")
     print(f"Detalle: {path}")
 
 
