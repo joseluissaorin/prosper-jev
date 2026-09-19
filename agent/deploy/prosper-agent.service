@@ -1,0 +1,13 @@
+[Unit]
+Description=Prosper: agente de voz (Twilio Media Streams en /ws, consola en /)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/Dev/prosper-jev/agent
+EnvironmentFile=%h/.config/prosper-agent.env
+ExecStart=%h/Dev/prosper-jev/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 7860 --log-level info
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

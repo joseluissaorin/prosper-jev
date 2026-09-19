@@ -1,0 +1,10 @@
+[Unit]
+Description=Prosper: clínica falsa con la misma API (pruebas sin clave)
+
+[Service]
+WorkingDirectory=%h/Dev/prosper-jev/agent
+ExecStart=%h/Dev/prosper-jev/.venv/bin/uvicorn fake_api:app --host 127.0.0.1 --port 8770
+Restart=always
+
+[Install]
+WantedBy=default.target
