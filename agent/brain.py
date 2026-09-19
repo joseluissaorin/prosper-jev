@@ -886,7 +886,7 @@ class Brain:
         elif pv == "unknown" and self.sounds_like(p):
             s.provider = self.sounds_like(p)
             out.append(self._log("provider_by_sound", said=said, provider=s.provider))
-        elif pv == "unknown" and pc >= 0.6 and said:
+        elif pv == "unknown" and pc >= 0.6 and said and self.names_a_doctor(text, said):
             s.provider = "unknown"
             s.ev["provider_said"] = said
         st, stc = p.c("site")
@@ -1447,6 +1447,13 @@ class Brain:
     REG_FIELDS = ["given_name", "surnames", "national_id", "date_of_birth", "phone", "email", "insurer"]
 
     # ------------------------------------------------------------ cifras: segunda opinión
+
+    def names_a_doctor(self, text: str, said: str) -> bool:
+        """¿De verdad nombra a un médico? Hace falta «doctor/doctora/Dr./Dra.» en lo dicho, y que no suene a sede:
+        «a GP at O'Rainel Central» es Arenal Centro mal oído, no un profesional que no existe."""
+        t = fold(text)
+        doctor = bool(re_findall(r"\b(dr|dra|doctor|doctora|doc|metge|metgessa|medico|medica)\b", t))
+        return doctor and not self.mentions_site(said)
 
     def mentions_site(self, text: str) -> bool:
         """¿Dice algo que suene a una sede («R&L SORE», «Arenal, sir»)? Sin esto, una pregunta cualquiera
