@@ -1,0 +1,76 @@
+:root {
+  --papel: #f3eee4;
+  --tinta: #2a241c;
+  --gris: #7d7466;
+  --linea: #ddd4c4;
+  --azul: #1f56c8;
+  --rojo: #b8392b;
+  --serif: "Newsreader", "Iowan Old Style", Georgia, serif;
+  --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--papel); color: var(--tinta); }
+body { font: 15px/1.5 var(--sans); overflow: hidden; -webkit-font-smoothing: antialiased; }
+
+#arena { position: fixed; inset: 0; width: 100vw; height: 100dvh; display: block; touch-action: none; }
+
+.top {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 2;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: calc(env(safe-area-inset-top) + 14px) 18px 10px;
+}
+.brand { display: flex; align-items: baseline; gap: 8px; }
+.brand .name { font: 500 17px/1 var(--serif); letter-spacing: .01em; }
+.brand .sub { font: 500 11px/1 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--gris); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--linea); align-self: center; transition: background .3s; }
+.dot.vivo { background: var(--azul); box-shadow: 0 0 0 0 rgba(31, 86, 200, .45); animation: latido 1.6s infinite; }
+.dot.alarma { background: var(--rojo); }
+@keyframes latido { 0% { box-shadow: 0 0 0 0 rgba(31, 86, 200, .45); } 70% { box-shadow: 0 0 0 9px rgba(31, 86, 200, 0); } 100% { box-shadow: 0 0 0 0 rgba(31, 86, 200, 0); } }
+
+.mode {
+  font: 500 12px/1 var(--sans); letter-spacing: .04em; color: var(--tinta);
+  background: transparent; border: 1px solid var(--linea); border-radius: 999px; padding: 8px 12px;
+}
+.mode[aria-pressed="true"] { border-color: var(--tinta); }
+
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2;
+  padding: 16px 20px calc(env(safe-area-inset-bottom) + 16px);
+  background: linear-gradient(to top, var(--papel) 72%, rgba(243, 238, 228, 0));
+  max-width: 640px; margin: 0 auto;
+}
+.kicker { margin: 0 0 4px; font: 600 11px/1.2 var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--gris); }
+.kicker.alarma { color: var(--rojo); }
+.frase { margin: 0 0 12px; font: 400 25px/1.18 var(--serif); letter-spacing: -.005em; text-wrap: balance; min-height: 2.36em; }
+.frase em { font-style: italic; }
+
+.dialogo { font: 400 15px/1.45 var(--serif); max-height: 7.4em; overflow: hidden; margin-bottom: 12px;
+  display: flex; flex-direction: column; justify-content: flex-end;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 1.2em); mask-image: linear-gradient(to bottom, transparent 0, #000 1.2em); }
+.dialogo p { margin: 0 0 4px; }
+.dialogo .quien { font: 600 10.5px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--gris); margin-right: 6px; }
+.dialogo .llama { font-style: italic; }
+.dialogo .parcial { color: var(--gris); }
+
+.cifras { list-style: none; margin: 0 0 10px; padding: 10px 0 0; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; border-top: 1px solid var(--linea); }
+.cifras li { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cifras .k { font: 500 10px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--gris); }
+.cifras .v { font: 500 15px/1.2 var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.llamadas { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: none; }
+.llamadas::-webkit-scrollbar { display: none; }
+.llamadas button { flex: none; font: 500 11px/1 var(--mono); color: var(--gris); background: transparent;
+  border: 1px solid var(--linea); border-radius: 999px; padding: 6px 10px; }
+.llamadas button.activa { color: var(--tinta); border-color: var(--tinta); }
+
+.pie { margin: 10px 0 0; font: 400 11.5px/1.4 var(--sans); color: var(--gris); }
+.nojs { position: fixed; top: 40%; width: 100%; text-align: center; font: 20px var(--serif); }
+
+@media (min-width: 900px) {
+  .frase { font-size: 32px; }
+  .sheet { bottom: 24px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dot.vivo { animation: none; }
+}

@@ -9,6 +9,8 @@ Por el socket del arnés solo van mensajes de Twilio (media, mark, clear). Todo 
 from __future__ import annotations
 
 import asyncio
+import os
+import secrets
 import base64
 import json
 import logging
@@ -104,6 +106,18 @@ async def health():
     return {"ok": True, "active_calls": len(HUB.active)}
 
 
+MONITOR_TOKEN = os.environ.get("MONITOR_TOKEN", "")
+
+
+@app.middleware("http")
+async def api_token(request, call_next):
+    """Con MONITOR_TOKEN, los datos de las llamadas (/api/…) solo con ?t=… (la salud y la llamada, abiertas)."""
+    if MONITOR_TOKEN and request.url.path.startswith("/api/") and \
+            not secrets.compare_digest(request.query_params.get("t", ""), MONITOR_TOKEN):
+        return JSONResponse({"detail": "token"}, status_code=401)
+    return await call_next(request)
+
+
 @app.get("/api/calls")
 async def calls():
     items = []
@@ -135,6 +149,10 @@ async def call_events(cid: str):
 
 @app.websocket("/monitor")
 async def monitor(ws: WebSocket):
+    # con MONITOR_TOKEN, el monitor (transcripciones y nombres) solo con ?t=… correcto; /ws (la llamada) no cambia
+    if MONITOR_TOKEN and not secrets.compare_digest(ws.query_params.get("t", ""), MONITOR_TOKEN):
+        await ws.close(code=4401)
+        return
     await ws.accept()
     q: asyncio.Queue = asyncio.Queue()
     HUB.subs.add(q)

@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f3eee4">
+<meta name="description" content="La arena de la recepción: una recepcionista de voz con Sistema 1 (Jev) y Sistema 2, vista en directo.">
+<title>Arena · recepción de Clínica Arenal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="arena" aria-hidden="true"></canvas>
+
+<header class="top">
+  <div class="brand">
+    <span class="dot" id="dot"></span>
+    <span class="name">Clínica Arenal</span>
+    <span class="sub">recepción</span>
+  </div>
+  <button class="mode" id="mode" type="button" aria-pressed="false">Ver demostración</button>
+</header>
+
+<main class="sheet" id="sheet">
+  <p class="kicker" id="kicker">Sin llamada</p>
+  <h1 class="frase" id="frase">La arena espera a la próxima llamada.</h1>
+  <div class="dialogo" id="dialogo" aria-live="polite"></div>
+  <ul class="cifras" id="cifras">
+    <li><span class="k">Jev</span><span class="v" id="c-jev">—</span></li>
+    <li><span class="k">respuesta</span><span class="v" id="c-resp">—</span></li>
+    <li><span class="k">turno</span><span class="v" id="c-turno">—</span></li>
+    <li><span class="k">estado</span><span class="v" id="c-estado">—</span></li>
+  </ul>
+  <nav class="llamadas" id="llamadas" aria-label="Llamadas"></nav>
+  <p class="pie">Cada grano es la misma arena: se asienta con lo hecho y se suelta con lo posible. Jev (Sistema 1) percibe; el código decide.</p>
+</main>
+
+<noscript><p class="nojs">La arena necesita JavaScript.</p></noscript>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
