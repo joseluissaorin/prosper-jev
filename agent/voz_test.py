@@ -107,7 +107,8 @@ class Llamada:
         fin_muestra = len(audio)
         for i in range(len(audio) - 160, 0, -160):
             trozo = pcm[i * 2:(i + 160) * 2]
-            if max(abs(int.from_bytes(trozo[j:j + 2], "little", signed=True)) for j in range(0, len(trozo), 2)) > 900:
+            vals = [abs(int.from_bytes(trozo[j:j + 2], "little", signed=True)) for j in range(0, len(trozo) - 1, 2)]
+            if vals and max(vals) > 900:
                 fin_muestra = i + 160
                 break
         cola = (len(audio) - fin_muestra) / 8000.0

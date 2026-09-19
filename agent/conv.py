@@ -269,6 +269,7 @@ class St2:
     prepared: dict = field(default_factory=dict)      # anulaciones y altas preparadas
     presented: dict = field(default_factory=dict)     # lo leído en la última intervención: {"ref":…, "turn":…}
     menu: list = field(default_factory=list)
+    asked: dict = field(default_factory=dict)         # cuántas veces se ha pedido cada cosa (no se pide tres veces igual)
     filler_turn: int = -9                             # último turno en que se arrancó con una marca («Vale,»)
     said_when: bool = False                           # ¿ha dicho quien llama algo de cuándo? (si no, no hay fechas que aplicar)          # ofertas sobre la mesa en esta negociación (se puede volver a cualquiera)
     decline: str | None = None                        # negativa pendiente (se declara al colgar si no hubo escritura)
@@ -797,6 +798,7 @@ class Conv:
             rest = [x for x in re.split(r"(?<=[.!?¡¿])\s+", said) if x and not re.search(
                 r"\b(done|booked|you'?re (all )?set|moved|cancel+ed|registered|hecho|listo|reservad|queda|anulad|cambiad|fet)\b", fold(x))]
             said = " ".join(rest) or {"es": "¿Algo más?", "ca": "Alguna cosa més?"}.get(self.lang3(), "Anything else?")
+        said = self.no_repetir(said)
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
         self.mark_read(said)
         if self._dry and self.on_prerender and said:
@@ -2093,6 +2095,50 @@ CLINIC VOCABULARY
                         self.lang3(), "Let me check that in the diary. Could I have the full name and the DNI or date of birth?")
                 return None
         return text
+
+    # lo que se puede estar pidiendo, para no pedirlo tres veces con las mismas palabras
+    PIDE = {"national_id": r"\b(dni|nie|documento|identity document)\b", "date_of_birth": r"\b(date of birth|fecha de nacimiento|data de naixement|born)\b",
+            "phone": r"\b(phone|tel[eé]fono|m[oó]vil|number on your file)\b", "email": r"\b(e-?mail|correo)\b",
+            "name": r"\b(full name|nombre completo|apellidos|surnames|nom complet)\b", "insurer": r"\b(insurance|insurer|seguro|mutua|asseguran)\b"}
+    OTRA_FORMA = {
+        "national_id": {"en": "Could you read me the DNI or NIE slowly, digit by digit, with the letter at the end?",
+                        "es": "¿Me lee el DNI o NIE despacio, cifra a cifra y con la letra del final?",
+                        "ca": "Em llegeix el DNI o NIE a poc a poc, xifra a xifra i amb la lletra final?"},
+        "date_of_birth": {"en": "And the day, month and year of birth, one at a time?", "es": "¿Y el día, el mes y el año de nacimiento, uno a uno?",
+                          "ca": "I el dia, el mes i l’any de naixement, un a un?"},
+        "phone": {"en": "Could you give me the nine digits of the phone, in threes?", "es": "¿Me da las nueve cifras del teléfono, de tres en tres?",
+                  "ca": "Em dona les nou xifres del telèfon, de tres en tres?"},
+        "email": {"en": "Could you spell the email for me, letter by letter?", "es": "¿Me deletrea el correo, letra a letra?",
+                  "ca": "Em lletreja el correu, lletra a lletra?"},
+        "name": {"en": "Could you spell the surnames for me?", "es": "¿Me deletrea los apellidos?", "ca": "Em lletreja els cognoms?"},
+        "insurer": {"en": "Which insurance company is it, in your own words?", "es": "¿Qué compañía de seguros es, con sus palabras?",
+                    "ca": "Quina companyia d’assegurances és, amb les seves paraules?"},
+    }
+
+    def no_repetir(self, said: str) -> str:
+        """Pedir tres veces lo mismo con las mismas palabras no lo consigue y se come la llamada: a la segunda se
+        pregunta de otra forma, y a la tercera se sigue con lo que haya."""
+        s, low = self.s, fold(said)
+        if "?" not in said:
+            return said
+        for campo, rx in self.PIDE.items():
+            if not re.search(rx, low):
+                continue
+            n = s.asked.get(campo, 0) + 1
+            s.asked[campo] = n
+            if n == 2:
+                otra = self.OTRA_FORMA[campo].get(self.lang3(), self.OTRA_FORMA[campo]["en"])
+                self._log("otra_forma", campo=campo)
+                return otra
+            if n >= 3:
+                self._log("dejar_de_pedir", campo=campo, veces=n)
+                s.msgs.append(types.Content(role="user", parts=[types.Part(text=f"(System: you have asked for the {campo} {n} times and it is not "
+                                                                                "working. Do not ask for it again: carry on with what you already "
+                                                                                "have, or tell them you will sort it another way.)")]))
+                return {"es": "No se preocupe, seguimos con lo que tengo.", "ca": "No es preocupi, seguim amb el que tinc."}.get(
+                    self.lang3(), "Don't worry, let's carry on with what I have.")
+            break
+        return said
 
     def mark_read(self, said: str):
         """Si lo que va a sonar nombra UNA sola oferta de la mesa (su hora y su médico), esa es la leída en esta intervención."""
