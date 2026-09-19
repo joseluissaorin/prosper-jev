@@ -354,6 +354,7 @@ class Conv:
         self._effects: list = []
         self._p: P | None = None
         self.on_early = None          # el servidor de voz lo fija: habla un acuse mientras trabajan las herramientas
+        self.on_prerender = None      # el servidor de voz lo fija: va generando la voz de la respuesta probable
         self.so_used = True
         self.no_confirm = False
         self.audio = b""
@@ -528,12 +529,29 @@ class Conv:
         self.warm(text)      # las fichas de los datos exactos, pedidas en paralelo con el juicio de Jev
         try:
             r = await JEV.ask(state, qs)
-            return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"])
+            p = P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"])
+            if spec:
+                self.speculate(text, p)
+            return p
         except Exception as e:  # noqa: BLE001
             # Jev caído (sin créditos, 5xx…): el mismo juicio con Flash-Lite, más lento pero seguro; nunca a ciegas
             self._log("jev_down", error=str(e)[:120])
             raw, ms = await fallback_judge(state, qs)
-            return P(text=text, raw=raw, ms=ms, hedged=True)
+            p = P(text=text, raw=raw, ms=ms, hedged=True)
+            if spec:
+                self.speculate(text, p)
+            return p
+
+    def speculate(self, text: str, p: P):
+        """Planificar sobre el parcial sin esperar a que la persona termine: cuando se cierra el turno, la respuesta
+        (y su voz) ya están hechas. Cuesta una llamada barata por parcial y ahorra medio segundo de silencio."""
+        if self._dry or len(text.split()) < 3 or p.n("finished", 1.0) < 0.35:
+            return
+        key = (self.s.version, "".join(ch for ch in fold(text) if ch.isalnum()))
+        if key in self._spec:
+            return
+        t = asyncio.ensure_future(self.handle(text, p, dry=True))
+        t.add_done_callback(lambda f: f.exception() if not f.cancelled() else None)
 
     # ------------------------------------------------------------ turno
 
@@ -589,6 +607,7 @@ class Conv:
             if key not in self._spec:
                 shadow = Conv(self.s.call_id, self.s.from_number, self.s.stream_sid)
                 shadow.s, shadow.catalog, shadow.facts, shadow._dry = copy.deepcopy(self.s), self.catalog, self.facts, True
+                shadow.on_prerender = self.on_prerender
                 shadow.hours = self.hours
                 shadow._line = getattr(self, "_line", [])
                 self._spec[key] = (shadow, asyncio.ensure_future(shadow._handle(text, p)), time.perf_counter(), text)
@@ -744,6 +763,11 @@ class Conv:
             said = " ".join(rest) or {"es": "¿Algo más?", "ca": "Alguna cosa més?"}.get(self.lang3(), "Anything else?")
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
         self.mark_read(said)
+        if self._dry and self.on_prerender and said:
+            try:
+                self.on_prerender(said, s.lang)     # la voz de la respuesta probable, generándose ya
+            except Exception:  # noqa: BLE001
+                pass
         res = out + [{"kind": "say", "text": said, "act": "planner"}]
         if ended:
             s.ended = True

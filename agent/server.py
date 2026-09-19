@@ -267,6 +267,9 @@ class TwilioCall(demo.VoiceCall):
         self.call = (Conv if AGENT == "v2" else Brain)(call_id=self.call_sid, from_number=frm, stream_sid=self.stream_sid)
         if hasattr(self.call, "on_early"):
             self.call.on_early = self.early_ack
+        if hasattr(self.call, "on_prerender"):
+            # la voz de la respuesta especulativa se va generando mientras quien llama termina de hablar
+            self.call.on_prerender = lambda t, lang=None: self.render(t)
         HUB.active[self.call_sid] = {"call_id": self.call_sid, "from_number": frm, "started": time.time()}
         await self.emit("call_started", call_id=self.call_sid, from_number=frm)
         # el saludo sale ya; la ficha de la línea y el oído se preparan en paralelo
