@@ -1,0 +1,15 @@
+[Unit]
+Description=Prosper: agente de voz LOCAL contra la clínica simulada (para nuestro arnés, puerto 7861)
+After=network-online.target prosper-fake-api.service
+
+[Service]
+WorkingDirectory=%h/Dev/prosper-jev/agent
+EnvironmentFile=%h/.config/prosper-agent.env
+EnvironmentFile=%h/.config/prosper-agent-local.env
+ExecStart=%h/Dev/prosper-jev/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 7861 --log-level info --timeout-graceful-shutdown 3
+Restart=always
+RestartSec=2
+TimeoutStopSec=8
+
+[Install]
+WantedBy=default.target

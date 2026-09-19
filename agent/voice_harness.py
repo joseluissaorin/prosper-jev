@@ -38,9 +38,10 @@ import ulaw  # noqa: E402
 import voice_cases  # noqa: E402
 from system2 import CLIENT  # noqa: E402
 
-AGENT = os.environ.get("AGENT_WS", "ws://127.0.0.1:7860/ws")
+# por defecto, la instancia LOCAL (contra la clínica simulada): la de 7860 atiende al arnés de Prosper con la API real
+AGENT = os.environ.get("AGENT_WS", "ws://127.0.0.1:7861/ws")
 MONITOR = AGENT.rsplit("/", 1)[0] + "/monitor"
-API = os.environ["PROSPER_API_BASE_URL"]
+API = os.environ.get("HARNESS_API", "http://127.0.0.1:8770")   # la clínica simulada, nunca la real
 CACHE = HERE / "cache" / "harness"
 CACHE.mkdir(parents=True, exist_ok=True)
 SR = 8000

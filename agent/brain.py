@@ -491,6 +491,12 @@ class Brain:
         oo, oc = p.c("oos")
         # la respuesta a una pregunta de datos (mal oída a veces: «Calf roping at all?») no es una petición fuera de ámbito
         answering = s.pending.startswith(("reg_", "identity", "which_", "not_found")) and act in ("provide_info", "unclear", "correct")
+        # algo «sin relación» en respuesta a una pregunta nuestra suele ser el reconocedor oyendo mal
+        # («No, only Caser» → «Now, on with the shower»): se pide que lo repita, no se declina
+        misheard = oo == "unrelated" and s.pending not in ("", "need", "anything_else")
+        if misheard and oc >= 0.7:
+            s.repeats += 1
+            return out + [self._say("repeat")]
         if oo and oo != "none" and oc >= 0.7 and not answering:
             s.oos = "out_of_scope"
             s.pending = "anything_else"
@@ -1377,7 +1383,8 @@ class Brain:
             return await self.commit_offer()   # si se cortó con una oferta aceptable sobre la mesa
         if s.intent == "register" and all(self.s.reg.get(k) for k in ("given_name", "first_surname", "second_surname", "national_id", "date_of_birth", "phone", "email", "insurer")):
             return await self.submit("register", self.register_body())
-        reason = s.oos or s.refusal or ("patient_not_found" if s.pending == "not_found" else "out_of_scope")
+        # el motivo de fondo (cobertura, agenda…) manda sobre un «fuera de ámbito» posterior
+        reason = s.refusal or s.oos or ("patient_not_found" if s.pending == "not_found" else "out_of_scope")
         return await self.submit("no-action", {"reason": reason})
 
     async def report(self) -> dict:

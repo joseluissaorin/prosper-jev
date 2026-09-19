@@ -603,6 +603,7 @@ class VoiceCall:
                 return
             if not typed and self.caller_talking():
                 await self.emit("log", msg="sigue hablando: se espera al final del turno")
+                self.spawn(self.answer_later(full, p, self.final_act))
                 return
             # Un turno que empezó antes de la última respuesta (o que la completa) no puede contestarla.
             if not typed and ((self.turn_t0 and self.turn_t0 < self.last_response_t) or self.continuation):
@@ -677,6 +678,21 @@ class VoiceCall:
                 self.speak_task.cancel()
                 await self.emit("stop_audio", reason="nueva respuesta")
             self.speak_task = self.spawn(self.speak_outs(outs))
+
+    async def answer_later(self, full: str, p, act: int):
+        """Guardia de «sigue hablando»: si el resto del turno no trae texto nuevo (una «H» suelta que el
+        reconocedor no devuelve), se contesta lo que ya había. Nunca debe quedarse la línea muda."""
+        t0 = time.perf_counter()
+        while time.perf_counter() - t0 < 15:
+            await asyncio.sleep(0.1)
+            if self.finalized or self.final_act > act or self.answered_act >= act:
+                return          # llegó un definitivo nuevo (lo contesta el camino normal) o ya se contestó
+            if not self.turn_open and time.perf_counter() - self.closed_t > 1.2:
+                full2 = " ".join(self.segments).strip() or full
+                await self.emit("log", msg=f"el resto del turno no trajo texto: se contesta «{full2}»")
+                p2 = p if _k(full2) == _k(full) else await self.perceive(full2)
+                await self.respond(full2, p2)
+                return
 
     REASK = {"ask_second_id", "repeat_id", "repeat", "id_letter_bad", "reg_phone_groups", "ask_repeat"}
 
