@@ -124,8 +124,17 @@ async def or_chat(system: str, msgs: list, tools: list | None, timeout: float = 
     return types.Content(role="model", parts=parts or [types.Part(text="")])
 
 
+BACKEND = os.environ.get("PLANNER_BACKEND", "openrouter")    # openrouter (Groq: ~0,35 s por paso) | gemini
+
+
 async def llm_step(system: str, msgs: list, tools: list | None, timeout: float = 5.0, schema: dict | None = None) -> types.Content:
-    """Un paso del Sistema 2: Gemini y, si Google deniega el proyecto o falla, OpenRouter (y ya no se vuelve a intentar)."""
+    """Un paso del Sistema 2. Por defecto OpenRouter (gpt-oss-120b en Groq, medido en 0,34-0,59 s por paso frente a
+    0,6-1,1 s de Gemini); si falla, Gemini. Y si Google deniega el proyecto, ya no se vuelve a intentar con él."""
+    if BACKEND == "openrouter" and not _OR.get("or_down"):
+        try:
+            return await or_chat(system, msgs, tools, timeout=timeout, schema=schema)
+        except Exception as e:  # noqa: BLE001
+            _OR["or_down"] = True                     # OpenRouter no responde: se sigue con Gemini
     if not _OR["down"]:
         cfg = types.GenerateContentConfig(system_instruction=system, temperature=0.2, max_output_tokens=600,
                                           automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
