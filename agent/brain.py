@@ -334,7 +334,9 @@ class Brain:
         (Flash-Lite tarda ~800 ms y Jev ~300): queda en marcha y el turno la recoge en handle()."""
         c = await self.cat()
         jq = self.questions(c)
-        state = {"receptionist_last": self.s.last_agent, "recent_turns": self.s.history[-6:], "caller": text}
+        state = {"receptionist_last": self.s.last_agent, "recent_turns": self.s.history[-6:], "caller": text,
+                 "note": "`caller` is an automatic transcription of a phone call: names of sites, doctors and insurers "
+                         "may come out misheard, so match them by how they sound."}
         if self.s.pending == "which_appt" and self.s.appts:
             state["appointments"] = {a["appointment_id"]: self.appt_desc(a) for a in self.s.appts}
         jt = asyncio.create_task(JEV.ask(state, jq))
@@ -364,14 +366,15 @@ class Brain:
                                 {x["id"]: x["name"] for x in c["specialties"]} | {"none": "No specialty named"}),
             "provider": choice("Which provider does the caller name in `caller`? Pick 'none' if no provider is named.",
                                {p["id"]: f"{p['name']} ({p['specialty_name']})" for p in c["providers"]} | {"none": "No provider named", "unknown": "Names a doctor not on this list"}),
-            "site": choice("Which clinic site does the caller ask for in `caller`?", {l["id"]: l["name"] for l in c["locations"]} | {"none": "No site named"}),
+            "site": choice("Which clinic site does the caller ask for in `caller`? The name may be misheard: match by sound.", {l["id"]: l["name"] for l in c["locations"]} | {"none": "No site named"}),
             "gives_address": noul("Does the caller give a street address or say where they are, asking for the nearest or closest clinic?"),
             "date_kind": choice("Which day does the caller ask for in `caller`?", DATE_KINDS),
             "weekday": choice("If `caller` names a day of the week for the appointment, which one?", {w: None for w in WEEKDAYS} | {"none": None}),
             "part": choice("Which part of the day does the caller want in `caller`?", {"first_thing": "first thing / earliest in the morning",
                            "morning": "in the morning (before 2 pm)", "afternoon": "in the afternoon (from 2 pm)", "any": "no preference stated"}),
             "wants_language": choice("Does the caller ask for a doctor who speaks a particular language?", {"none": None, "es": "Spanish", "ca": "Catalan", "en": "English"}),
-            "insurer": choice("Which insurer or plan does the caller name in `caller`?", {x["id"]: x["name"] for x in c["plans"]} | {"none": "No insurer named"}),
+            "insurer": choice("Which insurer or plan does the caller name in `caller`? The name may be misheard: match by sound, "
+                              "especially if `receptionist_last` just asked for the insurer.", {x["id"]: x["name"] for x in c["plans"]} | {"none": "No insurer named"}),
         }
         if True:
             q["lang"] = choice("Which language is the caller speaking in `caller`?", {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque", "other": "Other"})
@@ -1104,7 +1107,8 @@ class Brain:
             coded = spoken_id(text)
             if coded and (not said_id or len("".join(c for c in said_id if c.isdigit())) < len("".join(c for c in coded if c.isdigit()))):
                 said_id = coded
-            if said_id and (ask == "national_id" or fresh or len(said_id) >= 8):
+            # solo cuando es lo preguntado: un teléfono de 9 cifras («633445566») también parece un DNI
+            if said_id and (ask == "national_id" or (fresh and not s.reg.get("national_id"))):
                 nid, why = normalize_national_id(said_id)
                 out.append(self._log("dni", said=said_id, normalized=nid, why=why))
                 if nid:
