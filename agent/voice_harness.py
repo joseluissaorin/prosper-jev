@@ -276,6 +276,8 @@ class Call:
             if len(buf) < FRAME and self.queue:
                 buf = np.concatenate([buf, level_speech(self.queue.pop(0))])
                 self.playing = True
+            if 0 < len(buf) < FRAME and not self.queue:
+                buf = np.concatenate([buf, np.zeros(FRAME - len(buf), dtype=np.float32)])   # completar la última trama
             if len(buf) >= FRAME:
                 fr, buf = buf[:FRAME], buf[FRAME:]
                 if not len(buf) and not self.queue:
