@@ -524,8 +524,11 @@ class SileroVad:
 
 
 def make_vad():
+    # 140 ms de silencio para dar el turno por terminado (antes 180): el turno se cierra por SENTIDO, y deshacer y
+    # unir recoge el error si quien llama seguía hablando. Ajustable con VAD_END_MS para poder comparar.
+    end_ms = int(os.environ.get("VAD_END_MS", "140"))
     try:
-        return SileroVad()
+        return SileroVad(end_ms=end_ms)
     except Exception as e:  # noqa: BLE001
         log.warning("Silero VAD no disponible (%s): detector por energía", e)
         return Vad()

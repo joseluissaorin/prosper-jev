@@ -217,9 +217,19 @@ HUECO = re.compile(r"\b\d{1,2}[:.]\d{2}\b|\b\d{1,2}\s?(?:am|pm|h)\b|\bat \d{1,2}
                    r"dilluns|dimarts|dimecres|dijous|divendres|dissabte)\b", re.I)
 
 
+ABREV = re.compile(r"\b(Dr|Dra|Sr|Sra|St|a\.m|p\.m)\.")
+# muletillas de espera: no son un turno al que contestar, son el agente diciendo que está mirando algo
+RELLENO = re.compile(r"^(?:[^.?!]{0,40}\b(?:let me (?:check|have a look|see)|one moment|bear with me|un momento|un segundo|"
+                     r"lo miro|lo consulto|d[ée]jeme ver|a ver|ho miro|un moment|ara ho miro)\b[^?]*)$", re.I)
+
+
 def pick(agent_text: str, lines: dict) -> str:
     """Contesta a la PREGUNTA final del agente (la última frase con «?»), no a cualquier palabra de su turno."""
-    sents = [x.strip() for x in re.split(r"(?<=[.?!])\s+", agent_text) if x.strip()]
+    # «Dr. Andrés Sáez» no es final de frase: si no, la pregunta se parte y se pierde el día y la hora
+    txt = ABREV.sub(lambda m: m.group(1) + "․", agent_text)
+    if "?" not in agent_text and RELLENO.search(agent_text.strip()):
+        return "WAIT"                                   # «Let me check.»: se espera a la respuesta de verdad
+    sents = [x.strip().replace("\u2024", ".") for x in re.split(r"(?<=[.?!])\s+", txt) if x.strip()]
     qs = [x for x in sents if x.endswith("?")]
     focus = (qs[-1] if qs else (sents[-1] if sents else agent_text)).lower()
     for t in (focus, agent_text.lower()):
@@ -228,7 +238,7 @@ def pick(agent_text: str, lines: dict) -> str:
             return k
     # Sin regla que case: si en la pregunta hay un día o una hora, es que está ofreciendo un hueco. Antes se colgaba
     # aquí y se contaba como fallo del agente, cuando el fallo era del arnés por no conocer esa manera de ofrecer.
-    if qs and HUECO.search(focus):
+    if "?" in agent_text and HUECO.search(agent_text):
         for k in ("yes", "which", "when"):
             if k in lines:
                 return k
@@ -451,6 +461,16 @@ class Call:
                     await asyncio.sleep(silence_after[1])
                     silence_after = None
                 key = pick(agent, c["lines"])
+                esperas = 0
+                while key == "WAIT" and esperas < 3:          # el agente solo ha dicho «un momento»: se le deja mirar
+                    esperas += 1
+                    mas = await self.wait_agent_turn(time.time(), 12)
+                    if mas is None:
+                        break
+                    agent = mas
+                    key = pick(agent, c["lines"])
+                if key == "WAIT":
+                    key = "bye"
                 # en la lectura final del alta, quien llama comprueba sus datos y corrige lo que esté mal
                 if c.get("expect_reg") and "fix" in c["lines"] and self.used.get("fix", 0) < 2 and \
                         re.search(r"read that back|le leo los datos|what needs correcting|qué hay que corregir", agent.lower()) and \

@@ -406,6 +406,7 @@ class VoiceCall:
                 cuelga = bool(COLGANDO.search(full)) and (fin is None or fin < 0.7)
                 if (silence >= (1.8 if cuelga else 1.3)
                         or (silence >= 0.05 and stable >= 0.15 and fin is not None and fin >= 0.92)
+                        or (not cuelga and silence >= 0.15 and stable >= 0.10 and fin is not None and fin >= 0.75)
                         or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
                         or (not cuelga and silence >= 0.5 and stable >= 0.8)
                         or (not cuelga and silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))
