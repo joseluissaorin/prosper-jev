@@ -1164,6 +1164,22 @@ CLINIC VOCABULARY
 
     async def t_identify_patient(self, full_name: str = "", national_id: str = "", date_of_birth: str = "", phone: str = "", is_caller: bool = True) -> dict:
         probes = []
+        said = " ".join(h[8:] for h in self.s.history if h.startswith("Caller:"))
+        said_digits = re.sub(r"\D", "", said + " " + leer.words_to_numbers(fold(said)))
+        for k, v in (("national_id", national_id), ("phone", phone), ("date_of_birth", date_of_birth)):
+            d = re.sub(r"\D", "", v or "")
+            if not d:
+                continue
+            ok_said = d in said_digits or (k == "date_of_birth" and (leer.parse_dob(said) == date_of_birth or d[2:] in said_digits))
+            if not ok_said:
+                # el modelo no inventa datos de identidad: solo valen las cifras que ha dicho quien llama
+                self._log("identifier_invented", field=k, dropped=v)
+                if k == "national_id":
+                    national_id = ""
+                elif k == "phone":
+                    phone = ""
+                else:
+                    date_of_birth = ""
         if national_id and re.sub(r"\D", "", national_id) and (
                 re.sub(r"\D", "", national_id) == re.sub(r"\D", "", phone or "")
                 or re.sub(r"\D", "", national_id)[-9:] == re.sub(r"\D", "", self.s.from_number or "")[-9:]):
@@ -1333,6 +1349,11 @@ CLINIC VOCABULARY
             specialty = s.specialty
         if not specialty:
             return {"error": "need the specialty (or a doctor)"}
+        if not s.specialty and not provider_id and purpose == "book" and not s.seen_rules:
+            # nadie ha dicho para qué es la cita: reservar una especialidad a ojo es peor que preguntar
+            self._log("specialty_invented", dropped=specialty)
+            return {"error": "the caller has not said what the appointment is for: ask them briefly what they need (which kind of doctor, "
+                             "or what the problem is) and call find_slots again"}
         said = fold(" ".join(h[8:] for h in s.history if h.startswith("Caller:")))
         known = {p["id"]: p["name"] for p in cat["plans"]}
         named = [x for x in (extra_insurers or []) if x in known and x != pt["insurer"] and
@@ -1391,8 +1412,27 @@ CLINIC VOCABULARY
         a = await API.availability_span(d_from, d_to, **kw)
         slots = [x for x in a["slots"] if ok(x)]
         blocked = [{"doctor": self.prov(b["provider_id"])["name"], "rule": b["restriction"]} for b in a.get("blocked", [])]
+        note_leave = ""
+        lv = (self.prov(provider_id).get("leave") or {}) if provider_id else {}
+        if slots and lv.get("end") and purpose == "book":
+            # el médico está de baja: su primer hueco es al volver, pero un compañero de la misma especialidad y sede
+            # puede verle antes. Se ofrecen las dos cosas; que elija quien llama.
+            end = _d(lv["end"])
+            first = parse_slot(sorted(slots, key=lambda x: x["start_time"])[0]["start_time"]).date()
+            if end and first > end:
+                alt = await API.availability_span(d_from, min(first, d_to), **{k: v for k, v in kw.items() if k != "provider_id"})
+                alt_slots = [x for x in alt["slots"] if ok(x) and x["provider_id"] != provider_id]
+                if alt_slots and parse_slot(sorted(alt_slots, key=lambda x: x["start_time"])[0]["start_time"]).date() < first:
+                    self._log("leave_alternative", provider=provider_id, until=lv["end"])
+                    note_leave = (f"{self.prov(provider_id)['name']} is on leave until {lv['end']}; the first option is a colleague who can see "
+                                  f"them sooner, the second is that doctor when they are back. Say both.")
+                    slots = alt_slots + slots
+                    self._count = max(getattr(self, "_count", 1), 2)
         if slots:
-            return self.offer(slots, appt, plans, purpose, specialty, blocked, patient_id)
+            res = self.offer(slots, appt, plans, purpose, specialty, blocked, patient_id)
+            if note_leave:
+                res["note_on_leave"] = note_leave
+            return res
         reasons = sorted({b["rule"] for b in blocked})
         for r_ in reasons:
             if r_ not in s.seen_rules:
