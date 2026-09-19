@@ -1522,6 +1522,10 @@ CLINIC VOCABULARY
         d_from = max(_d(date_from) or tomorrow, tomorrow)
         d_to = min(_d(date_to) or last, last)
         nb = _dt(not_before)
+        if nb and date_from and (_d(date_from) or nb.date()) > nb.date():
+            # «más tarde que mi cita» no es «otro día»: un date_from posterior esconde los huecos de ese mismo día
+            self._log("date_from_ignored", dropped=date_from, not_before=not_before)
+            date_from = ""
         if nb and nb.date() > d_from:
             d_from = nb.date()
         if d_from > d_to:
