@@ -132,9 +132,18 @@ def spoken_id(text: str) -> str | None:
                 first_letter = w.upper()
             elif digits:
                 letters.append(w.upper())
-        elif w in LETTER_WORDS and digits:
-            letters.append(LETTER_WORDS[w])
+        elif w in LETTER_WORDS:
+            if not digits and LETTER_WORDS[w] in "XYZ":
+                first_letter = LETTER_WORDS[w]       # «why, one two three…»: la inicial del NIE, dicha por su nombre
+            elif digits:
+                letters.append(LETTER_WORDS[w])
     need = 7 if first_letter else 8
+    if not first_letter and len(digits) == 7 and letters:
+        # un NIE del que no se ha oído la inicial («an NIE 1234567X»): la letra final solo cuadra con una de las
+        # tres, y normalize_national_id sabe deducirla; si las tres llevaran al mismo sitio, es ese
+        vale = {normalize_national_id(L + digits + letters[-1])[0] for L in "XYZ"} - {None, ""}
+        if len(vale) == 1:
+            return vale.pop()
     if len(digits) < need:
         return None
     if len(digits) > need and not letters and not first_letter:
