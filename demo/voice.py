@@ -116,16 +116,21 @@ class Stt:
     async def activity_start(self, preroll: bytes = b""):
         await self.ready.wait()
         self.in_activity = True
+        self.pushed = 0
         await self._send(activity_start=types.ActivityStart())
         if preroll:
             await self.push(preroll)
 
     async def push(self, pcm: bytes):
-        if self.session and self.in_activity:
+        if self.session and self.in_activity and pcm:
+            self.pushed = getattr(self, "pushed", 0) + len(pcm)
             await self._send(audio=types.Blob(data=pcm, mime_type="audio/pcm;rate=16000"))
 
     async def activity_end(self, act: int = -1):
         if self.session and self.in_activity:
+            if not getattr(self, "pushed", 0):
+                # cerrar una intervención vacía tumba la sesión (1007): se manda antes un poco de silencio
+                await self.push(bytes(3200))
             self.in_activity = False
             self.t_end = time.perf_counter()
             self.acts.append(act)
