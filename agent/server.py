@@ -292,15 +292,17 @@ class TwilioCall(demo.VoiceCall):
         self.agent_text = text
         self.agent_start_t = time.time()
         r = self.render(text)
+        ready = r.cached or r.done or bool(r.chunks)     # ya en caché o preparada de antemano (especulación)
         await self.emit("agent", text=text, act=act, source=source, cached=r.cached or r.done, audio=True)
         first, buf, t_start, sent_s, wall0 = True, b"", None, 0.0, time.time()
+        t_ask = time.perf_counter()
         gaps: list[int] = []
         async for chunk in r.stream():
             if first:
                 first = False
                 if self.t_speech_end:
                     await self.emit("latency", stage="fin de voz → primera palabra", ms=round((time.perf_counter() - self.t_speech_end) * 1000),
-                                    boca_ms=r.first_ms, cached=r.cached, source=r.source)
+                                    boca_ms=round((time.perf_counter() - t_ask) * 1000), cached=ready, source=r.source)
                     self.t_speech_end = None
             # la boca de ElevenLabs ya da µ-law de 8 kHz; la de Gemini (o su respaldo), PCM de 24 kHz
             buf += chunk if r.fmt == "ulaw8" else ulaw.pcm16_to_ulaw(ulaw.down_24k_to_8k(chunk))
@@ -322,7 +324,7 @@ class TwilioCall(demo.VoiceCall):
         if buf:
             await self.send_json({"event": "media", "streamSid": self.stream_sid, "media": {"payload": base64.b64encode(buf).decode()}})
         await self.send_json({"event": "mark", "streamSid": self.stream_sid, "mark": {"name": act[:40] or "say"}})
-        await self.emit("voice", source=r.source or ("caché" if r.cached else ""), first_ms=r.first_ms, gaps=gaps, text=text[:80])
+        await self.emit("voice", source=r.source, ready=ready, first_ms=r.first_ms, gaps=gaps, text=text[:80])
 
     def early_ack(self, text: str):
         """Acuse del planificador («Un momento, lo miro») mientras trabajan las herramientas: suena ya, y la respuesta

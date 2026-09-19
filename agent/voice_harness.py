@@ -532,14 +532,14 @@ async def main():
         print(f"Según el agente (fin de voz → primera palabra): mediana {statistics.median(A):.0f} ms · p90 {A[int(0.9 * (len(A) - 1))]:.0f} · "
               f"máx {A[-1]:.0f} ms · {len(A)} turnos")
         D = [d for r in results for d in r.get("agent_lat_detail", [])]
-        for name, sel in (("con la voz en caché", [d["ms"] for d in D if d.get("cached")]),
+        for name, sel in (("con la voz ya lista (caché o preparada)", [d["ms"] for d in D if d.get("cached")]),
                           ("sintetizando", [d["ms"] for d in D if not d.get("cached")])):
             if sel:
                 sel.sort()
                 print(f"   {name}: mediana {statistics.median(sel):.0f} ms · p90 {sel[int(0.9 * (len(sel) - 1))]:.0f} ms · {len(sel)} turnos")
         B = sorted(d["boca_ms"] for d in D if not d.get("cached") and d.get("boca_ms") is not None)
         if B:
-            print(f"   de ellos, la boca hasta su primer audio: mediana {statistics.median(B):.0f} ms · p90 {B[int(0.9 * (len(B) - 1))]:.0f} ms")
+            print(f"   de ellos, espera a la boca hasta su primer audio: mediana {statistics.median(B):.0f} ms · p90 {B[int(0.9 * (len(B) - 1))]:.0f} ms")
     utts = sum(r.get("utts", 0) for r in results)
     gapped = [g for r in results for g in r.get("gapped", [])]
     vs = [v for r in results for v in r.get("voice", [])]

@@ -630,6 +630,7 @@ class Mouth:
         if r and (r.ok or not r.done):
             return r
         r = Render(text)
+        r.source = "gemini"
         self.renders[k] = r
         f = CACHE / f"{k}.pcm"
         if f.exists():
