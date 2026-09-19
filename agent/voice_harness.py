@@ -195,7 +195,7 @@ RULES = [
     (r"do you mean|which one|cuál|quina d|which of", "which"),
     (r"which kind of appointment|specialt|especialidad|especialitat", "specialty"),
     (r"when would you like|what day|qué día|quin dia|when would|preference|move it to", "when"),
-    (r"shall i|would that work|would you like|is all of that correct|se la reservo|l.hi reservo|le va bien|li va bé|lo confirmo|l.anul|la anulo|es todo correcto|és tot correcte|would any|okay\?", "yes"),
+    (r"shall i|does that work|do you want me to book|how about|would that work|would you like|is all of that correct|se la reservo|l.hi reservo|le va bien|li va bé|lo confirmo|l.anul|la anulo|es todo correcto|és tot correcte|would any|okay\?", "yes"),
     (r"can't help with that|no puedo ayudarle|no el puc ajudar|can only help", "yes"),
     (r"how can i help|what can i do|en qué puedo|en què el puc", "need"),
 ]
