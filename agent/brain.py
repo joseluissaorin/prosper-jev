@@ -481,17 +481,22 @@ class Brain:
         try:
             r = await jt
         except Exception as e:  # noqa: BLE001
-            # sin Jev el turno cae en «no le he entendido»: con una frase de verdad, pedir que la repita es peor que
-            # esperar otra vuelta de Jev (la especulación no reintenta: el turno definitivo lo hará)
-            r = None
-            if not spec and len(text.split()) >= 3:
+            # sin Jev el turno caía en «no le he entendido» aunque la frase fuera clara. Un fallo pasajero (tiempo,
+            # 429, 5xx) se reintenta una vez; uno de la cuenta (402 sin créditos, 401…) no se arregla reintentando.
+            # Si Jev no contesta, las mismas preguntas van a Flash-Lite (fallback_judge, con la forma de Jev).
+            r, code = None, str(e)[:3]
+            transient = not (code.isdigit() and code.startswith("4") and code != "429")
+            retried = not spec and transient and len(text.split()) >= 3
+            if retried:
                 try:
                     r = await JEV.ask(state, jq)
                 except Exception:  # noqa: BLE001
                     r = None
-            self._log("jev_error", error=type(e).__name__, retried=not spec and len(text.split()) >= 3, ok=r is not None)
             if r is None:
-                return P(text=text, raw={"act": {"type": "choice", "choice": "unclear", "confidence": 1.0, "probabilities": {}}}, ex={}, ms=-1)
+                from conv import fallback_judge   # perezoso: conv importa de brain
+                raw, ms = await fallback_judge(state, jq)
+                r = {"answers": raw, "ms": ms, "hedged": False}
+            self._log("jev_error", error=str(e)[:80], retried=retried, respaldo="jev" if r.get("model") else "flash-lite", ms=r["ms"])
         if spec and et and not et.done():
             return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"], ex_task=et)
         # lectura determinista + lo que ya sabe Jev: solo se espera al LLM si hace falta algo que no cubren
