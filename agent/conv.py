@@ -277,6 +277,9 @@ MARCADOR_INICIAL = re.compile(r"^\s*(muy bien|ajá|aja|gracias|perfecto|estupend
                               r"ulertzen dut|jakina|ondo da|bale|right|thank you|lovely|perfect|great|i see|no problem|of course|let'?s see|"
                               r"let me see|oh dear|okay|sure|très bien|d’accord|merci|parfait|formidable|je comprends|pas de souci|bien sûr|"
                               r"voyons|alors|oh là|entendu)\b[,.:;]?\s*", re.I)
+# palabras corrientes que empiezan frase y no son nombres propios (para no confundir un nombre con el idioma)
+FUNCIONALES = {"i", "my", "the", "hello", "hi", "yes", "no", "ok", "okay", "and", "it", "its", "im", "id", "hola", "buenas", "si", "no",
+               "el", "la", "mi", "me", "es", "y", "soy", "bon", "bona", "jo", "el", "meu", "oui", "bonjour", "je", "mon", "ma"}
 SPEC_FILLER = {"please", "thanks", "thank", "you", "um", "uh", "er", "erm", "hmm", "mm", "mhm", "ah", "oh", "well", "so", "right",
                "por", "favor", "gracias", "muchas", "eh", "pues", "bueno", "a", "ver", "si", "us", "plau", "gracies", "moltes",
                "sisplau", "vale", "ok", "okay", "perdone", "perdona", "perdoni", "disculpe"}
@@ -745,7 +748,8 @@ class Conv:
         if kind is None or s.turn - getattr(s, "filler_turn", -9) < 1:
             return
         lg, lc = p.c("lang")
-        lang = lg if lg in ARRANQUE and lc >= 0.6 else (s.lang if s.lang in ARRANQUE else "en")
+        propio = lg in ARRANQUE and lc >= 0.9 and not self.solo_datos(p.text) and len(p.text.split()) >= 5
+        lang = lg if (propio and not s.lang_locked) else (s.lang if s.lang in ARRANQUE else "en")
         opts = [x for x in ARRANQUE[lang][kind] if x not in s.fillers[-2:]] or ARRANQUE[lang][kind]
         word = opts[s.turn % len(opts)]
         s.filler_turn = s.turn
@@ -883,10 +887,23 @@ class Conv:
             res.append({"kind": "end"})
         return res
 
+    @staticmethod
+    def solo_datos(text: str) -> bool:
+        """Un turno que es casi todo nombre propio y cifras («Mario García López, DNI 39958838 H») no dice en qué
+        idioma habla la persona: un apellido español no convierte una llamada en inglés en una llamada en español."""
+        ws = [w.strip(".,;:¿?¡!()") for w in text.split()]
+        ws = [w for w in ws if w]
+        if not ws:
+            return True
+        datos = sum(1 for w in ws if any(c.isdigit() for c in w) or (w[:1].isupper() and fold(w) not in FUNCIONALES) or len(w) <= 2)
+        return datos >= max(2, int(len(ws) * 0.6))
+
     def set_lang(self, p: P, text: str):
         s = self.s
         lg, lc = p.c("lang")
         words = len(text.split())
+        if self.solo_datos(text):
+            return                                   # nombre y DNI: no se toca el idioma
         if not s.lang_locked and words < 4:
             t0 = fold(text)
             quick = "ca" if re.search(r"\b(bon dia|bona tarda|bona nit|si us plau)\b", t0) else \
