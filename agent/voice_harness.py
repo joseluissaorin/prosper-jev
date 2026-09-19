@@ -216,6 +216,14 @@ def pick(agent_text: str, lines: dict) -> str:
 # ---------------------------------------------------------------- una llamada
 
 
+DEBUG = os.environ.get("DEBUG") == "1"
+
+
+def dbg(*a):
+    if DEBUG:
+        print(f"{time.strftime('%H:%M:%S')}", *a, flush=True)
+
+
 class Call:
     def __init__(self, case: dict):
         self.c = case
@@ -255,6 +263,13 @@ class Call:
 
     async def pump(self, ws):
         """Manda una trama cada 20 ms: voz si hay en cola, si no silencio; con ruido si toca."""
+        try:
+            await self._pump(ws)
+        except Exception as e:  # noqa: BLE001
+            dbg(self.c["id"], "EL BOMBEO DE AUDIO MURIÓ:", repr(e))
+            raise
+
+    async def _pump(self, ws):
         t0, n, chunk = time.perf_counter(), 0, 0
         buf = np.zeros(0, dtype=np.float32)
         while True:
@@ -288,6 +303,7 @@ class Call:
         if not text:
             return False
         self.said.append(f"{key}: {text}")
+        dbg(self.c["id"], "dice", key, text[:60])
         self.play_done.clear()
         self.queue.append(utterance(self.c["voice"], text))
         await self.play_done.wait()
@@ -366,6 +382,7 @@ class Call:
                         self.used["_interrupted"] = 1
                         await self.say(it[1])
                 agent = await self.wait_agent_turn(self.speech_end)
+                dbg(self.c["id"], "agente:", (agent or "(nada)")[:90])
                 if agent is None:
                     break
                 if silence_after and silence_after[0] == key:
