@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prosper · recepción por voz</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <h1>Clínica Prosper</h1>
+    <p>Recepción por voz con Sistema 1 y Sistema 2</p>
+  </div>
+  <div class="legend">
+    <span><b>Sistema 1</b> Jev decide en ~300 ms</span>
+    <span><b>Política</b> código auditable</span>
+    <span><b>Sistema 2</b> Gemini Flash-Lite, vigilado</span>
+  </div>
+</header>
+
+<main>
+  <section class="col call">
+    <div class="card controls">
+      <div class="row">
+        <button id="callBtn" class="primary">Llamar</button>
+        <select id="lang" aria-label="Idioma de la llamada">
+          <option value="auto">Idioma automático</option>
+          <option value="es">Español</option>
+          <option value="ca">Català</option>
+          <option value="gl">Galego</option>
+          <option value="eu">Euskara</option>
+          <option value="en">English</option>
+        </select>
+        <label class="toggle"><input type="checkbox" id="tts" checked> Voz del agente</label>
+      </div>
+      <div class="row meter-row">
+        <div class="meter" aria-label="Nivel del micrófono"><div id="meter"></div></div>
+        <span id="vad" class="pill">en silencio</span>
+        <span id="status" class="muted">Sin llamada</span>
+      </div>
+      <p class="hint">Mejor con auriculares: así el micrófono no oye al agente. También puedes escribir como si hablaras.</p>
+    </div>
+
+    <div class="card transcript" id="transcript" aria-live="polite"></div>
+
+    <form id="typeForm" class="card typebox">
+      <input id="typeInput" placeholder="Escribe lo que diría quien llama…" autocomplete="off" aria-label="Texto de quien llama">
+      <button type="submit">Enviar</button>
+    </form>
+  </section>
+
+  <section class="col mind">
+    <div class="card">
+      <h2>Sistema 1 en directo <small id="jevMeta"></small></h2>
+      <div id="said" class="said muted">Esperando a que hable quien llama…</div>
+      <div id="bars" class="bars"></div>
+    </div>
+    <div class="card">
+      <h2>Controles antes de escribir</h2>
+      <ul id="gates" class="gates"></ul>
+    </div>
+    <div class="card">
+      <h2>Traza</h2>
+      <ul id="trace" class="trace"></ul>
+    </div>
+  </section>
+
+  <section class="col state">
+    <div class="card">
+      <h2>Estado de la llamada</h2>
+      <dl id="state" class="kv"></dl>
+    </div>
+    <div class="card">
+      <h2>Latencias</h2>
+      <dl id="lat" class="kv"></dl>
+    </div>
+    <div class="card">
+      <h2>Informe final <small class="muted">lo que se declara al marcador</small></h2>
+      <pre id="report" class="report muted">Aparece al colgar.</pre>
+    </div>
+    <div class="card">
+      <h2>Agenda de la clínica <button id="refreshAgenda" class="link">actualizar</button></h2>
+      <div id="agenda" class="agenda"></div>
+    </div>
+  </section>
+</main>
+
+<script src="/static/app.js" type="module"></script>
+</body>
+</html>

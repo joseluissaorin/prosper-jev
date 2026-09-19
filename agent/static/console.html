@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Prosper · consola de llamadas</title>
+<style>
+:root { --paper:#f6f3ee; --card:#fffdf9; --ink:#1f2328; --muted:#7a7670; --line:#e6e0d6; --accent:#1f6f6b; --soft:#d8ebe8; --warn:#b5532f; --ok:#2f7d4a;
+  --serif:"Iowan Old Style","Palatino Linotype",Georgia,serif; --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SF Mono",Menlo,monospace; }
+* { box-sizing:border-box } body { margin:0; background:var(--paper); color:var(--ink); font:14px/1.45 var(--sans) }
+header { padding:20px 28px 12px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-end }
+h1 { font:600 24px/1.1 var(--serif); margin:0 } header p { margin:4px 0 0; color:var(--muted) }
+main { display:grid; grid-template-columns:300px 1fr 1fr; gap:16px; padding:16px 28px }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px }
+h2 { font:600 15px/1.2 var(--serif); margin:0 0 8px }
+.list { display:grid; gap:6px; max-height:80vh; overflow:auto } .item { padding:8px 10px; border-radius:8px; border:1px solid var(--line); cursor:pointer; font-size:12.5px }
+.item.live { border-color:var(--accent); background:var(--soft) } .item.sel { outline:2px solid var(--accent) } .muted { color:var(--muted) }
+.tl { display:grid; gap:6px; max-height:80vh; overflow:auto; font-size:13px }
+.msg { padding:7px 10px; border-radius:10px; max-width:92% } .agent { background:var(--soft); justify-self:start } .caller { background:#eef1f6; justify-self:end }
+.gate { font-size:12.5px } .ok { color:var(--ok) } .ko { color:var(--warn) }
+.ev { font:11.5px var(--mono); color:var(--muted) } .submit { font:12px var(--mono); background:#fff6e8; border:1px solid #f0dcc0; padding:6px 8px; border-radius:8px }
+pre { font:11.5px/1.4 var(--mono); white-space:pre-wrap; margin:0 }
+</style>
+</head>
+<body>
+<header><div><h1>Clínica Arenal · consola de llamadas</h1><p>Cada llamada en directo: qué oyó, qué entendió Jev, qué decidió el código, qué se declaró y por qué.</p></div>
+<div class="muted" id="stats"></div></header>
+<main>
+  <section class="card"><h2>Llamadas</h2><div class="list" id="calls"></div></section>
+  <section class="card"><h2>Conversación y decisiones</h2><div class="tl" id="tl"><span class="muted">Elige una llamada.</span></div></section>
+  <section class="card"><h2>Lo que se declaró al marcador</h2><div id="sub" class="tl"></div><h2 style="margin-top:14px">Estado</h2><pre id="state" class="muted"></pre></section>
+</main>
+<script>
+const $ = (i) => document.getElementById(i);
+const calls = new Map(); let sel = null;
+function el(t, c, x) { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; }
+function getCall(id) { if (!calls.has(id)) calls.set(id, { id, events: [], live: true, started: Date.now() }); return calls.get(id); }
+function renderList() {
+  const box = $("calls"); box.innerHTML = "";
+  [...calls.values()].sort((a, b) => b.started - a.started).forEach((c) => {
+    const d = el("div", "item" + (c.live ? " live" : "") + (sel === c.id ? " sel" : ""));
+    d.append(el("div", "", c.id.slice(0, 14) + "…"));
+    d.append(el("div", "muted", (c.live ? "en curso" : (c.outcome || "terminada")) + (c.from ? " · " + c.from : "")));
+    d.onclick = () => { sel = c.id; renderList(); renderCall(); }; box.append(d);
+  });
+}
+function line(e) {
+  const t = e.type;
+  if (t === "agent") return el("div", "msg agent", e.text);
+  if (t === "final") return el("div", "msg caller", e.text);
+  if (t === "perception") { const j = e.j || {}; const a = j.act ? `${j.act.c} ${j.act.conf.toFixed(2)}` : ""; const it = j.intent ? `${j.intent.c}` : "";
+    return el("div", "ev", `Jev ${e.ms} ms · acto ${a} · intención ${it}${j.red_flag && j.red_flag.c !== "none" ? " · alarma " + j.red_flag.c : ""}${j.oos && j.oos.c !== "none" ? " · límite " + j.oos.c : ""}`); }
+  if (t === "trace") { const v = e.event; if (v.kind === "gate") { const d = el("div", "gate"); d.append(el("span", v.ok ? "ok" : "ko", v.ok ? "✓ " : "✗ ")); d.append(el("span", "", `${v.name}: ${v.detail}`)); return d; }
+    if (["offer", "availability", "fallback", "date", "triage", "dni", "identity", "line", "second_plan", "nearest_site", "intent_changed", "lang"].includes(v.kind)) return el("div", "ev", `${v.kind} ${JSON.stringify(Object.fromEntries(Object.entries(v).filter(([k]) => !["t", "kind"].includes(k))))}`); return null; }
+  if (t === "latency") return el("div", "ev", `⏱ ${e.stage}: ${e.ms} ms`);
+  if (t === "log" || t === "stop_audio") return el("div", "ev", "· " + (e.msg || e.reason));
+  return null;
+}
+function renderCall() {
+  const c = calls.get(sel); if (!c) return;
+  const tl = $("tl"); tl.innerHTML = ""; const sub = $("sub"); sub.innerHTML = "";
+  for (const e of c.events) { const n = line(e); if (n) tl.append(n);
+    if (e.type === "trace" && e.event.kind === "gate" && e.event.name === "envío") sub.append(el("div", "submit", e.event.detail));
+    if (e.type === "state") $("state").textContent = JSON.stringify(e.state, null, 1); }
+  tl.scrollTop = 1e9;
+}
+function onEvent(e) {
+  const c = getCall(e.call_id); c.events.push(e);
+  if (e.type === "call_started") { c.from = e.from_number; c.started = e.ts * 1000; }
+  if (e.type === "report") { c.live = false; c.outcome = e.report.outcome; }
+  if (!sel) sel = c.id;
+  renderList(); if (sel === c.id) renderCall();
+}
+async function loadPast() {
+  const r = await fetch("/api/calls").then((r) => r.json());
+  $("stats").textContent = `${r.active.length} en curso · ${r.past.length} guardadas`;
+  for (const p of r.past) if (!calls.has(p.call_id)) calls.set(p.call_id, { id: p.call_id, events: [], live: false, outcome: p.outcome, from: p.from_number, started: 0, past: true });
+  renderList();
+}
+function connect() {
+  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/monitor`);
+  ws.onmessage = (m) => onEvent(JSON.parse(m.data)); ws.onclose = () => setTimeout(connect, 1500);
+}
+document.addEventListener("click", async (ev) => {
+  const c = calls.get(sel); if (c && c.past && !c.events.length) {
+    const d = await fetch(`/api/calls/${c.id}`).then((r) => r.json());
+    c.events = (d.transcript || []).map((t) => t.startsWith("Caller: ") ? { type: "final", text: t.slice(8) } : { type: "agent", text: t.replace(/^Receptionist: /, "") })
+      .concat((d.trace || []).map((v) => ({ type: "trace", event: v })));
+    renderCall();
+  }
+});
+loadPast(); connect(); setInterval(loadPast, 10000);
+</script>
+</body>
+</html>

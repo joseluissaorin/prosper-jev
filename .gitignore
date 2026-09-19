@@ -1,0 +1,13 @@
+# entornos y cachés
+.venv/
+__pycache__/
+*.pyc
+# audio generado (se regenera solo)
+demo/cache/
+evals/audio/
+# llamadas grabadas (pueden llevar datos personales)
+demo/calls/
+agent/calls/
+# claves: nunca en el repositorio (viven en ~/.claude/.secrets/)
+*.env
+.env*
