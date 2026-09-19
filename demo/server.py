@@ -412,14 +412,19 @@ class VoiceCall:
                 # produce «It's an NIE 1234-» y la recepción vuelve a preguntar lo mismo tres veces. Si el texto
                 # acaba en cifra, en guion o en una letra suelta y Jev no ve la frase terminada, se le da más aire.
                 cuelga = colgando(full) and (fin is None or fin < 0.7)
-                if (silence >= (1.8 if cuelga else 1.3)
+                # Si la respuesta a ESTE texto ya está planificada y su voz ya está hecha, y no escribe en la
+                # agenda, el turno no espera al veredicto de Jev: no queda nada que decidir. Es el caso normal
+                # cuando el cerebro especula en cada parcial, y ahí el techo lo ponía el reloj, no el sentido.
+                listo = not cuelga and stable >= 0.2 and silence >= 0.1 and self.plan_listo(full)
+                if (listo
+                        or silence >= (1.8 if cuelga else 1.3)
                         or (silence >= 0.05 and stable >= 0.15 and fin is not None and fin >= 0.92)
                         or (not cuelga and silence >= 0.15 and stable >= 0.10 and fin is not None and fin >= 0.75)
                         or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
                         or (not cuelga and silence >= 0.5 and stable >= 0.8)
                         or (not cuelga and silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))
                         or (cuelga and silence >= 1.0 and stable >= 1.0)):
-                    why = f"silencio {silence:.2f} s"
+                    why = "la respuesta ya estaba hecha" if listo else f"silencio {silence:.2f} s"
             # voz de fondo: el detector lleva ≥3 s oyendo voz SIN una sola pausa (una persona hace pausas; una tele no)
             # y el texto no cambia. Con menos, es el retraso del transcriptor en una frase normal.
             elif self.turn_text and self.interim and now - self.run_t >= 3.0 and \
@@ -459,6 +464,17 @@ class VoiceCall:
             if same_words(t, full):
                 return v
         return None
+
+    def plan_listo(self, full: str) -> bool:
+        """¿Está ya la respuesta a este texto planificada, sintetizada y libre de escrituras? Entonces contestar no
+        cuesta nada y no hace falta esperar más silencio."""
+        r = self.ready_get(full)
+        if not r:
+            return False
+        p, outs, renders, writes = r
+        if writes or not outs:
+            return False
+        return all(getattr(x, "cached", False) or getattr(x, "done", False) or getattr(x, "chunks", None) for x in renders)
 
     def caller_talking(self) -> bool:
         """¿Está hablando quien llama? Con ruido de fondo el detector no sirve: cuenta el texto nuevo."""
