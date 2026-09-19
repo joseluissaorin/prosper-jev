@@ -462,7 +462,9 @@ async def caller_turn(c, history) -> str:
     sys_ = CALLER_SYS.format(persona=c["persona"], facts=c["facts"] or "nothing special", goal=c["goal"], behaviors=beh,
                              rules=c["rules"], lang=c["lang"])
     contents = [types.Content(role="user" if who == "agent" else "model", parts=[types.Part(text=t)]) for who, t in history]
-    cfg = types.GenerateContentConfig(system_instruction=sys_, temperature=0.8, max_output_tokens=300,
+    # sin razonamiento y con margen: con 300 tokens el modelo gastaba el límite pensando y la frase salía cortada
+    cfg = types.GenerateContentConfig(system_instruction=sys_, temperature=0.8, max_output_tokens=1500,
+                                      thinking_config=types.ThinkingConfig(thinking_level="minimal"),
                                       automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
     for attempt in range(5):
         try:

@@ -75,6 +75,8 @@ COMPLAINTS = {  # queja publicada → especialidad (problema 10)
     "periods": ("Very heavy, irregular periods for months", "gynaecology"),
     "bleeding_between": ("Bleeding between periods, three cycles running", "gynaecology"),
     "pelvic_pain": ("Dull pain low down on one side for a couple of weeks", "gynaecology"),
+    "rash": ("A rash, itchy or flaky patch of skin, eczema or acne", "dermatology"),
+    "mole": ("A mole, spot or mark on the skin that has changed or looks odd", "dermatology"),
     "none": ("No symptom described", None),
 }
 DATE_KINDS = {
@@ -164,6 +166,54 @@ def grounded(name_part: str, text: str) -> bool:
     words = fold(name_part).split()
     t = " " + "".join(ch if ch.isalnum() else " " for ch in fold(text)) + " "
     return bool(words) and all(f" {w} " in t for w in words)
+
+
+QUESTION_TOPICS = {"site_hours": "opening hours of a site", "site_address": "where a site is, its address or how to get there",
+                   "weekend": "which site is open on Saturdays or weekends", "provider_specialty": "what kind of doctor someone is (e.g. is Dr X a GP?)",
+                   "provider_where": "where or on which days a doctor works", "languages": "which languages a doctor speaks",
+                   "duration": "how long the appointment lasts", "practical": "parking, which entrance, which floor, what to bring, payment",
+                   "other": "something else", "none": "no question"}
+SPEC_L = {"es": {"paediatrics": "pediatría", "dermatology": "dermatología", "orthopaedics": "traumatología", "gynaecology": "ginecología",
+                 "physiotherapy": "fisioterapia"},
+          "ca": {"paediatrics": "pediatria", "dermatology": "dermatologia", "orthopaedics": "traumatologia", "gynaecology": "ginecologia",
+                 "physiotherapy": "fisioteràpia"}}
+DAYS_EN = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+DAY_NAMES = {"en": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"],
+             "es": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
+             "ca": ["dilluns", "dimarts", "dimecres", "dijous", "divendres", "dissabte", "diumenge"]}
+
+
+def _hours(loc) -> dict[int, str]:
+    """Horario de una sede en cualquiera de los dos formatos del catálogo (opens/closes o intervals)."""
+    out = {}
+    for d in loc.get("hours", []):
+        w = DAYS_EN.index(str(d.get("weekday", "")).lower()) if str(d.get("weekday", "")).lower() in DAYS_EN else None
+        if w is None:
+            continue
+        if d.get("intervals"):
+            out[w] = ", ".join(x.replace("–", " to ").replace("-", " to ") for x in d["intervals"])
+        elif d.get("opens"):
+            out[w] = f"{d['opens']} to {d['closes']}"
+    return out
+
+
+def hours_text(loc, lang="en", only: str | None = None) -> str:
+    h = _hours(loc)
+    if only:
+        w = DAYS_EN.index(only)
+        return h.get(w, "closed").replace(" to ", {"en": " to ", "es": " a ", "ca": " a "}[lang])
+    groups, cur = [], None
+    for w in range(7):
+        if w in h and cur and cur[2] == h[w] and cur[1] == w - 1:
+            cur[1] = w
+        else:
+            if w in h:
+                cur = [w, w, h[w]]
+                groups.append(cur)
+    names = DAY_NAMES.get(lang, DAY_NAMES["en"])
+    to = {"en": " to ", "es": " a ", "ca": " a "}[lang]
+    parts = [f"{names[a]}{(to + names[b]) if b != a else ''} {t.replace(' to ', to)}" for a, b, t in groups]
+    return "; ".join(parts) if parts else {"en": "by appointment", "es": "con cita", "ca": "amb cita"}[lang]
 
 
 GREET_WORDS = {"hello", "hi", "hey", "hiya", "hola", "buenas", "buenos", "bon", "bona", "hallo", "morning", "afternoon", "evening"}
@@ -390,6 +440,11 @@ class Brain:
             "provider": choice("Which provider does the caller name in `caller`? The name may be misheard: match by sound "
                                "(and by specialty). Pick 'none' if no provider is named, 'unknown' only if it sounds like none of them.",
                                {p["id"]: f"{p['name']} ({p['specialty_name']})" for p in c["providers"]} | {"none": "No provider named", "unknown": "Names a doctor not on this list"}),
+            "asks_question": noul("Does `caller` ask the receptionist any question (about the clinic, a doctor, the offer, practical details)? "
+                                  "Answer no for plain confirmations like 'is that ok?'."),
+            "checks_presence": noul("Is `caller` checking whether the receptionist is still there or can hear them ('hello?', 'are you there?')?"),
+            "gives_info": noul("Does `caller` give any information or request (what they want, a name, a number, a date, a preference, yes/no)?"),
+            "question_topic": choice("If `caller` asks a question, what is it about?", QUESTION_TOPICS),
             "accepts_offer": noul("Does `caller` accept the appointment the receptionist just offered in `receptionist_last` "
                                   "(even if they also ask something else)? Answer no if they reject it, ask for a different time, day or site, or if nothing was offered."),
             "provider_sound": choice("If `caller` names a doctor, which of these surnames sounds most like the name they said? "
@@ -406,7 +461,8 @@ class Brain:
                               "especially if `receptionist_last` just asked for the insurer.", {x["id"]: x["name"] for x in c["plans"]} | {"none": "No insurer named"}),
         }
         if True:
-            q["lang"] = choice("Which language is the caller speaking in `caller`?", {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque", "other": "Other"})
+            q["lang"] = choice("Which language is `caller` MAINLY written in? Ignore isolated interjections or words from another "
+                               "language ('sí, sí', 'vale', 'genial') and ignore names.", {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque", "other": "Other"})
         if s.pending == "which_appt" and s.appts:
             q["appt"] = choice("Which of `appointments` does the caller mean in `caller`?", {a["appointment_id"]: self.appt_desc(a) for a in s.appts} | {"both": "More than one / all of them", "none": "None / unclear"})
         return q
@@ -500,7 +556,13 @@ class Brain:
 
         # 1. urgencias publicadas: se deriva y no se reserva nada
         rf, rc = p.c("red_flag")
+        if s.ev.get("escalated"):
+            # ya derivado: se insiste corto y se cuelga para que llame
+            return out + [self._text({"en": "Please hang up now and call one one two. Goodbye.", "es": "Cuelgue ahora y llame al uno uno dos. Adiós.",
+                                      "ca": "Pengi ara i truqui al u u dos. Adéu."}.get(s.lang, "Please hang up now and call one one two. Goodbye."), "emergency_again")] \
+                + (await self.goodbye())[:-2] + [{"kind": "end"}]
         if rf and rf != "none" and rc >= 0.6:
+            s.ev["escalated"] = True
             out.append(self.gate("triaje", False, f"señal de alarma «{rf}» ({rc:.2f}): derivar, no reservar"))
             out += await self.submit("escalate", {"reason": "medical_emergency"})
             s.pending = "anything_else"
@@ -513,43 +575,59 @@ class Brain:
         oo, oc = p.c("oos")
         # la respuesta a una pregunta de datos (mal oída a veces: «Calf roping at all?») no es una petición fuera de ámbito
         answering = s.pending.startswith(("reg_", "identity", "which_", "not_found")) and act in ("provide_info", "unclear", "correct")
-        # algo «sin relación» en respuesta a una pregunta nuestra suele ser el reconocedor oyendo mal
-        # («No, only Caser» → «Now, on with the shower»): se pide que lo repita, no se declina
-        misheard = oo == "unrelated" and s.pending not in ("", "need", "anything_else")
-        if misheard and oc >= 0.7:
-            s.repeats += 1
-            return out + [self._say("repeat")]
-        if oo and oo != "none" and oc >= 0.7 and not answering:
+        if oo and oo != "none" and oc >= 0.7 and not answering and (oo != "unrelated" or s.pending in ("", "need", "anything_else")):
             s.oos = "out_of_scope"
             s.pending = "anything_else"
             out.append(self.gate("límites", False, f"{oo} ({oc:.2f}): se declina sin leer datos de nadie"))
             return out + [self._say("decline"), self._say("anything_else")]
-
-        # 3. despedida
-        if s.pending == "anything_else" and act == "reject" and ac >= 0.6:
+        if s.pending == "anything_else" and act == "reject" and ac >= 0.6 and p.n("asks_question") < 0.5:
             return out + await self.goodbye()
 
-        # 4a. un saludo a secas («Hello.», «¿Hola?»): se saluda y se pregunta en qué ayudar, o se confirma que seguimos aquí
-        if is_greeting(text):
-            if not s.intent:
-                return out + [self._text({"en": "Hello! How can I help you today?", "es": "¡Hola! ¿En qué puedo ayudarle?",
-                                          "ca": "Hola! En què el puc ajudar?"}.get(s.lang, "Hello! How can I help you today?"), "greet_back")]
-            return out + [self._text({"en": "Yes, I'm here.", "es": "Sí, le escucho.", "ca": "Sí, l’escolto."}.get(s.lang, "Yes, I'm here."), "here")] \
-                + await self.advance(reprompt=True)
+        # 3. JUGADAS TRANSVERSALES: un turno es un conjunto de jugadas. Saludar, comprobar si seguimos ahí o preguntar
+        # algo NO cortan el turno: se acumulan como prefijo y después se atiende todo lo demás que haya dicho.
+        pre_say: list[dict] = []
+        greet = is_greeting(text)
+        if greet or p.n("checks_presence") >= 0.7:
+            if not s.intent and greet:
+                pre_say.append(self._text({"en": "Hello!", "es": "¡Hola!", "ca": "Hola!"}.get(s.lang, "Hello!"), "greet_back"))
+            elif not greet or s.intent:
+                pre_say.append(self._text({"en": "Yes, I'm here.", "es": "Sí, le escucho.", "ca": "Sí, l’escolto."}.get(s.lang, "Yes, I'm here."), "here"))
+        asked = (act == "ask_question" and ac >= 0.5) or p.n("asks_question") >= 0.7
+        about_offer = s.pending == "confirm_book" and s.offer is not None
+        if asked and not greet:
+            ans = await self.answer(text, p)
+            if ans:
+                pre_say.append(ans)
+                self._answered = True
+        # lo ininteligible solo si no hay nada más que atender
+        content = p.n("gives_info") >= 0.5 or p.n("accepts_offer") >= 0.6 or act in ("confirm", "reject", "correct", "provide_info")
+        if not pre_say and not content:
+            if (oo == "unrelated" and oc >= 0.7 and s.pending not in ("", "need", "anything_else")) or (act == "unclear" and ac >= 0.5):
+                s.repeats += 1
+                return out + [self._say("repeat")]
+        if pre_say and not content and not s.intent:
+            return out + pre_say + [self._text({"en": "How can I help you today?", "es": "¿En qué puedo ayudarle?",
+                                                "ca": "En què el puc ajudar?"}.get(s.lang, "How can I help you today?"), "ask_need")]
 
-        # 4. no se entiende
-        if act == "unclear" and ac >= 0.5:
-            s.repeats += 1
-            return out + [self._say("repeat")]
-
-        # 5. preguntas sobre la clínica (problema 16)
-        if p.n("offscript") >= 0.6 and act == "ask_question" and s.pending not in ("confirm_book", "confirm_cancel", "reg_confirm"):
-            ans = await self.answer_question(text)
-            out.append(self._log("system2", question=text, answer=ans))
-            return out + [self._text(ans, "question")] + await self.advance(reprompt=True)
+        it, ic = p.c("intent")
+        # «¿Le doy de alta?» → «sí»: se empieza el alta; con datos nuevos, otro intento de identificarle
+        if s.pending == "not_found":
+            if (act == "confirm" and ac >= 0.6) or (it == "register" and ic >= 0.7):
+                s.intent, s.pending, s.refusal = "register", "", None
+            elif act == "reject" and ac >= 0.6:
+                s.pending = "anything_else"
+                return out + pre_say + [self._say("anything_else")]
+            elif p.n("gives_info") >= 0.6:
+                s.pending, s.id_tries = "identity", 2
+        # tras «¿algo más?», una petición nueva abre una tarea nueva (sin arrastrar las preferencias de la anterior)
+        if s.pending == "anything_else" and it in ("book", "reschedule", "cancel", "register") and ic >= 0.7 \
+                and act not in ("reject", "end_call") and (s.submitted or s.refusal or s.oos):
+            out.append(self._log("new_task", intent=it))
+            s.intent, s.pending, s.relation = it, "", None
+            s.specialty = s.provider = s.site = s.site_unsure = s.day = s.day_kind = s.part = s.offer = s.target = None
+            s.provider_opts, s.rejected, s.asked_plan, s.refusal, s.oos = [], [], False, None, None
 
         # 6. intención
-        it, ic = p.c("intent")
         if it in ("book", "reschedule", "cancel", "register", "info") and ic >= 0.7:
             if s.intent in (None, "info") or (it != s.intent and ic >= 0.85 and act in ("correct", "provide_info")):
                 if s.intent and s.intent != it:
@@ -557,12 +635,16 @@ class Brain:
                     s.offer, s.target = None, None
                 s.intent = it
 
-        # 7. absorber datos
-        out += await self.absorb(text, p, act, ac)
+        # 7. absorber datos (aceptaciones, preferencias, identidad, alta…) y componer: prefijo + resultado + siguiente jugada
+        self._answered = bool(pre_say)
+        body = await self.absorb(text, p, act, ac)
+        says = [o for o in body if o.get("kind") == "say"]
+        logs = [o for o in body if o.get("kind") != "say"]
         if getattr(self, "_stop", False):
             self._stop = False
-            return out
-        return out + await self.advance()
+            return out + logs + pre_say + says
+        nxt = await self.advance(reprompt=bool(pre_say))
+        return out + logs + pre_say + says + nxt
 
     async def absorb(self, text: str, p: P, act: str, ac: float) -> list[dict]:
         s, out, ex = self.s, [], p.ex
@@ -695,19 +777,13 @@ class Brain:
             # como «corrección», pero acepta con 0,93); una confirmación tibia vale si además acepta
             accepted = accepts >= 0.85 or (act == "confirm" and ac >= 0.8) or (act == "confirm" and ac >= 0.6 and accepts >= 0.6)
             if act == "ask_question" and ac >= 0.6 and accepts < 0.6:
-                # una pregunta sobre la oferta («¿el Dr. Sáez es el de cabecera?»): se contesta y se vuelve a preguntar
-                ans = await self.answer_question(f"{text}\n(The receptionist had just offered: {s.last_agent})")
-                out.append(self._log("system2", question=text, answer=ans))
-                out.append(self._text(ans, "question"))
+                # una pregunta sobre la oferta («¿el Dr. Sáez es el de cabecera?»): ya contestada en el prefijo; se repregunta corto
+                if not getattr(self, "_answered", False):
+                    out.append(self._text(await self.answer_question(f"{text}\n(The receptionist had just offered: {s.last_agent})"), "question"))
                 out.append(self._text({"en": "Shall I book it for you?", "es": "¿Se la reservo?", "ca": "Li reservo?"}.get(s.lang, "Shall I book it for you?"), "offer_again"))
                 self._stop = True
             elif accepted:
-                out += await self.commit_offer()
-                if act == "ask_question" and p.n("offscript") >= 0.5:
-                    # «sí, y ¿por qué entrada?»: reservado, y se contesta la pregunta
-                    ans = await self.answer_question(text)
-                    out.append(self._log("system2", question=text, answer=ans))
-                    out.append(self._text(ans, "question"))
+                out += await self.commit_offer()     # «sí, y ¿por qué entrada?»: la pregunta ya va en el prefijo
                 self._stop = True
             elif act == "reject" or (act == "correct" and accepts < 0.5) or (accepts < 0.3 and (p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"))):
                 sl = s.offer["slot"]
@@ -861,6 +937,10 @@ class Brain:
             if len(ms) > 1:
                 ambiguous = True
         if not found and name and not probes:
+            s.id_tries += 1
+            if s.id_tries > 3:
+                s.refusal, s.pending = "patient_not_found", "not_found"
+                return [self.gate("identidad", False, "sin segundo dato tras tres intentos"), self._say("not_found")]
             ms = await API.directory(name=name)
             s.pending = "identity_second"
             if len(ms) > 1:
@@ -908,6 +988,11 @@ class Brain:
             return out + [self._text({"en": f"I'm sorry, we don't have a {s.ev.get('provider_said', 'doctor by that name')} at the clinic. Is there anything else I can help with?",
                                       "es": "Lo siento, no tenemos a ese profesional en la clínica. ¿Algo más?",
                                       "ca": "Ho sento, no tenim aquest professional a la clínica. Alguna cosa més?"}[s.lang], "provider_not_found")]
+        if not s.specialty and s.pending == "specialty":
+            # ya se preguntó y no lo sabe («whichever can see me first»): médico de familia, que deriva si hace falta
+            s.specialty = "general_practice"
+            out.append(self._text({"en": "Then I'll look for a GP, who can refer you on if needed.", "es": "Entonces le busco médico de familia, que le derivará si hace falta.",
+                                   "ca": "Doncs li busco metge de família, que el derivarà si cal."}.get(s.lang, "Then I'll look for a GP."), "default_gp"))
         if not s.specialty:
             s.pending = "specialty"
             return out + [self._say("ask_specialty")]
@@ -1383,6 +1468,67 @@ class Brain:
         return best[0][1] if best else None
 
     # ------------------------------------------------------------ Sistema 2: preguntas sobre la clínica
+
+    async def answer(self, text: str, p: P) -> dict | None:
+        """Banco de respuestas: lo que está en el catálogo se contesta con plantilla (0 ms, ya en la caché de voz).
+        Solo lo que no está en el banco va al Sistema 2 (Flash-Lite con la guardia de Jev)."""
+        s, cat = self.s, await self.cat()
+        topic, tc = p.c("question_topic")
+        lang = s.lang
+        off = (s.offer or {}).get("slot") or {}
+        site = p.c("site")[0] if p.c("site")[1] >= 0.5 and p.c("site")[0] not in (None, "none") else (s.site or off.get("location_id"))
+        pv = p.c("provider")[0] if p.c("provider")[1] >= 0.5 and p.c("provider")[0] not in (None, "none", "unknown") else None
+        pv = pv or (p.c("provider_sound")[0] if p.c("provider_sound")[1] >= 0.5 and p.c("provider_sound")[0] not in (None, "none") else None)
+        pv = pv or s.provider if s.provider not in (None, "unknown") else pv
+        pv = pv or off.get("provider_id")
+        loc = next((l for l in cat["locations"] if l["id"] == site), None)
+        prov = next((x for x in cat["providers"] if x["id"] == pv), None)
+        T = lambda en, es, ca: self._text({"en": en, "es": es, "ca": ca}.get(lang, en), f"answer_{topic}")
+        if tc < 0.5 or topic in (None, "none"):
+            topic = "other"
+        if topic == "site_hours" and loc:
+            h = hours_text(loc, lang)
+            return T(f"{loc['name']} is open {h}.", f"{loc['name']} abre {h}.", f"{loc['name']} obre {h}.")
+        if topic == "site_address" and loc:
+            return T(f"{loc['name']} is at {loc['address']}.", f"{loc['name']} está en {loc['address']}.", f"{loc['name']} és a {loc['address']}.")
+        if topic == "weekend":
+            sat = [l["name"] for l in cat["locations"] if any(str(d.get("weekday", "")).lower() == "saturday" for d in l.get("hours", []))]
+            if sat:
+                h = "; ".join(f"{l['name']} {hours_text(l, lang, only='saturday')}" for l in cat["locations"] if l["name"] in sat)
+                return T(f"On Saturdays only {' and '.join(sat)} is open: {h}.", f"Los sábados solo abre {' y '.join(sat)}: {h}.",
+                         f"Els dissabtes només obre {' i '.join(sat)}: {h}.")
+            return T("None of our sites open at weekends.", "Ninguna sede abre los fines de semana.", "Cap seu obre el cap de setmana.")
+        if topic == "provider_specialty" and prov:
+            gp = prov["specialty_id"] == "general_practice"
+            sp = self.spec_name(prov["specialty_id"]).lower()
+            es, ca = SPEC_L["es"].get(prov["specialty_id"], sp), SPEC_L["ca"].get(prov["specialty_id"], sp)
+            return T(f"{prov['name']} is one of our {'GPs' if gp else sp + ' doctors'}.",
+                     f"{prov['name']} es {'médico de familia' if gp else 'de ' + es}.", f"{prov['name']} és {'metge de família' if gp else 'de ' + ca}.")
+        if topic == "provider_where" and prov:
+            where = " and ".join(prov.get("location_names") or [])
+            return T(f"{prov['name']} sees patients at {where}.", f"{prov['name']} pasa consulta en {where}.", f"{prov['name']} passa consulta a {where}.")
+        if topic == "languages":
+            wl = p.c("wants_language")[0]
+            if prov and wl in (None, "none"):
+                names = {"es": "Spanish", "en": "English", "ca": "Catalan"}
+                ls = " and ".join(names.get(x, x) for x in prov.get("languages", []))
+                return T(f"{prov['name']} speaks {ls}.", f"{prov['name']} habla {ls}.", f"{prov['name']} parla {ls}.")
+            if wl in ("ca", "es", "en"):
+                who = [x["name"] for x in cat["providers"] if wl in x.get("languages", [])]
+                return T(f"{', '.join(who[:4])} {'speak' if len(who) > 1 else 'speaks'} {'Catalan' if wl == 'ca' else 'Spanish' if wl == 'es' else 'English'}.",
+                         f"Hablan {'catalán' if wl == 'ca' else 'español' if wl == 'es' else 'inglés'}: {', '.join(who[:4])}.",
+                         f"Parlen {'català' if wl == 'ca' else 'castellà' if wl == 'es' else 'anglès'}: {', '.join(who[:4])}.")
+        if topic == "duration" and s.offer:
+            t = next((x for x in cat["appointment_types"] if x["id"] == s.offer.get("type")), None)
+            if t:
+                return T(f"It's a {t['duration_minutes']}-minute appointment.", f"Es una cita de {t['duration_minutes']} minutos.",
+                         f"És una visita de {t['duration_minutes']} minuts.")
+        if topic == "practical":
+            return T("I'm afraid I don't have that information here, but the front desk at the site will help you on the day.",
+                     "Eso no lo tengo aquí, pero en recepción de la sede le ayudarán ese día.",
+                     "Això no ho tinc aquí, però a la recepció de la seu l’ajudaran aquell dia.")
+        ans = await self.answer_question(text if not s.offer else f"{text}\n(The receptionist had just offered: {s.last_agent})")
+        return self._text(ans, "question")
 
     async def answer_question(self, question: str) -> str:
         cat = await self.cat()
