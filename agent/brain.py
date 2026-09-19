@@ -236,6 +236,28 @@ def is_greeting(text: str) -> bool:
     return 0 < len(ws) <= 6 and any(w in GREET_WORDS for w in ws) and all(w in GREET_FILL for w in ws)
 
 
+SALUDO = {"es": {"morning": "buenos días", "afternoon": "buenas tardes", "evening": "buenas noches"},
+          "ca": {"morning": "bon dia", "afternoon": "bona tarda", "evening": "bona nit"}}
+LINE_LANGS_FILE = Path(__file__).parent / "calls" / "idioma_por_linea.json"
+try:
+    LINE_LANGS: dict[str, str] = json.loads(LINE_LANGS_FILE.read_text())
+except Exception:  # noqa: BLE001
+    LINE_LANGS = {}
+
+
+def remember_line_language(number: str | None, lang: str):
+    """Guarda el idioma en que habló esta línea: la próxima vez se la saluda directamente en él."""
+    num = "".join(c for c in (number or "") if c.isdigit())
+    if len(num) < 9 or lang not in ("en", "es", "ca"):
+        return
+    LINE_LANGS[num[-9:]] = lang
+    try:
+        LINE_LANGS_FILE.parent.mkdir(exist_ok=True)
+        LINE_LANGS_FILE.write_text(json.dumps(LINE_LANGS))
+    except Exception:  # noqa: BLE001
+        pass
+
+
 # relleno que no es un apellido cuando se piden los apellidos
 FILLER = {"my", "surnames", "surname", "are", "is", "its", "it", "s", "and", "the", "yes", "sure", "they", "them", "last", "names",
           "name", "family", "mis", "apellidos", "son", "y", "els", "meus", "cognoms", "i", "sorry", "oh", "um", "uh", "well", "so", "ok", "okay"}
@@ -391,10 +413,35 @@ class Brain:
                 self.s.line_matches = []
         return [self._log("line", from_number=self.s.from_number, matches=[m["patient_id"] for m in self.s.line_matches])]
 
+    def line_language(self) -> tuple[str | None, str]:
+        """El idioma más probable ANTES de que hable: el de sus llamadas anteriores (la clínica recuerda cómo habla
+        cada línea), el de su ficha («Catalan speaker») o el del prefijo. None = no se sabe."""
+        num = "".join(c for c in (self.s.from_number or "") if c.isdigit() or c == "+")
+        if num:
+            mem = LINE_LANGS.get(num[-9:])
+            if mem in ("en", "es", "ca"):
+                return mem, "memoria de la línea"
+            for m in self.s.line_matches or []:
+                note = fold(m.get("note") or "")
+                if "catalan" in note or "catala" in note:
+                    return "ca", "ficha"
+            if num.startswith("+") and not num.startswith("+34"):
+                return "en", "prefijo extranjero"
+        return None, "desconocido"
+
     def opening(self) -> list[dict]:
         h = self.s.t0.hour
         daypart = "morning" if h < 14 else ("afternoon" if h < 20 else "evening")
-        return [self._say("greet", daypart=daypart, clinic=(self.catalog or {}).get("clinic_name", "the clinic"))]
+        clinic = (self.catalog or {}).get("clinic_name", "the clinic")
+        lang, why = self.line_language()
+        if lang:
+            # sabemos cómo habla: saludo en su idioma (sin fijarlo del todo: si habla otro, el espejo manda)
+            self.s.lang = lang
+            return [self._log("greet_lang", lang=lang, why=why),
+                    self._say("greet", daypart=daypart, clinic=clinic, saludo_es=SALUDO["es"][daypart], saludo_ca=SALUDO["ca"][daypart])]
+        # no lo sabemos: saludo bilingüe mínimo y a escuchar; sus primeras palabras deciden el idioma
+        es = SALUDO["es"][daypart]
+        return [self._log("greet_lang", lang="es+en", why=why), self._text(f"{clinic}, {es}, good {daypart}.", "greet")]
 
     # ------------------------------------------------------------ percepción
 
@@ -641,6 +688,13 @@ class Brain:
             s.lang, s.lang_locked = lg, True
             if lg == "ca":
                 s.lang_req = "ca"
+        if not s.lang_locked:
+            t0 = fold(text)
+            quick = "ca" if re_findall(r"\b(bon dia|bona tarda|bona nit|hola bon|si us plau)\b", t0) else \
+                "es" if re_findall(r"\b(hola|buenas|buenos dias|buenas tardes|quisiera|queria|necesito)\b", t0) else \
+                "en" if re_findall(r"\b(hello|hi|good (morning|afternoon|evening)|i need|i'd like|i would like)\b", t0) else None
+            if quick and words < 4:
+                s.lang = quick                              # un «Hola» a secas ya dice en qué idioma contestar
         wl, wc = p.c("wants_language")
         if wl in ("ca", "es", "en") and wc >= 0.7:
             s.lang_req = wl
@@ -1817,6 +1871,8 @@ class Brain:
         return await self.submit("no-action", {"reason": reason})
 
     async def report(self) -> dict:
+        if self.s.lang_locked and not self._dry:
+            remember_line_language(self.s.from_number, self.s.lang)
         s = self.s
         return {"call_id": s.call_id, "language": s.lang, "patient_id": (s.patient or {}).get("patient_id"),
                 "outcome": ", ".join(x["action"] for x in s.submitted) or "none", "reason": s.refusal or s.oos,
