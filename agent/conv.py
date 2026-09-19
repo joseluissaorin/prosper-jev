@@ -238,6 +238,9 @@ PLACEHOLDERS = {"caller", "caller line", "the caller", "caller name", "unknown",
 SITE_SOUNDS = {"centro": ("centro", "center", "centre", "central", "sentro"), "norte": ("norte", "north", "norteh", "nordeste"),
                "sur": ("sur", "sir", "soor", "south", "sour", "seur")}
 # lo que puede sobrar entre un parcial y su definitivo sin cambiar nada de lo que hay que hacer
+# marcas de arranque: lo que dice una persona mientras piensa. Se sueltan solo cuando el plan NO está hecho al cerrar
+# el turno, para que la primera palabra salga sin esperar (ya están en la caché de voz, así que suenan en 0 ms).
+ARRANQUE = {"en": ["Right,", "Okay,", "Let's see,"], "es": ["Vale,", "A ver,", "Muy bien,"], "ca": ["Molt bé,", "A veure,", "D’acord,"]}
 SPEC_FILLER = {"please", "thanks", "thank", "you", "um", "uh", "er", "erm", "hmm", "mm", "mhm", "ah", "oh", "well", "so", "right",
                "por", "favor", "gracias", "muchas", "eh", "pues", "bueno", "a", "ver", "si", "us", "plau", "gracies", "moltes",
                "sisplau", "vale", "ok", "okay", "perdone", "perdona", "perdoni", "disculpe"}
@@ -266,6 +269,7 @@ class St2:
     prepared: dict = field(default_factory=dict)      # anulaciones y altas preparadas
     presented: dict = field(default_factory=dict)     # lo leído en la última intervención: {"ref":…, "turn":…}
     menu: list = field(default_factory=list)
+    filler_turn: int = -9                             # último turno en que se arrancó con una marca («Vale,»)
     said_when: bool = False                           # ¿ha dicho quien llama algo de cuándo? (si no, no hay fechas que aplicar)          # ofertas sobre la mesa en esta negociación (se puede volver a cualquiera)
     decline: str | None = None                        # negativa pendiente (se declara al colgar si no hubo escritura)
     escalated: bool = False
@@ -644,6 +648,9 @@ class Conv:
             self._spec[k][1].cancel()
         self._spec.clear()
         self._partials = []
+        if hit is None and self.on_early and not self.no_confirm:
+            # nadie ha planificado este turno: se arranca hablando, como una persona, en vez de dejar silencio
+            self.start_filler(p)
         if hit:
             shadow, task, t0, partial = hit
             try:
@@ -663,6 +670,20 @@ class Conv:
                 wrote = await self.adopt(shadow)
                 return [self._log("speculation_reused", head_start_ms=head, why=why, partial=partial[:120])] + outs + wrote
         return await self._handle(text, p)
+
+    def start_filler(self, p: P):
+        """Una marca corta («Vale,», «Right,») mientras se planifica: nunca dos turnos seguidos, ni al despedirse."""
+        s = self.s
+        if s.turn - getattr(s, "filler_turn", -9) < 2 or p.n("says_goodbye", 0.0) >= 0.5 or p.act[0] in ("backchannel", "unclear"):
+            return
+        opts = ARRANQUE.get(self.lang3(), ARRANQUE["en"])
+        word = opts[s.turn % len(opts)]
+        s.filler_turn = s.turn
+        try:
+            self.on_early(word)
+            self._log("filler", text=word)
+        except Exception:  # noqa: BLE001
+            pass
 
     async def _handle(self, text: str, p: P) -> list[dict]:
         s = self.s
