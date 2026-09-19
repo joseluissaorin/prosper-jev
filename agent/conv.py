@@ -727,8 +727,9 @@ class Conv:
         if p.n("ails", 0.0) >= 0.6 and not self.s.asked.get("_empatia"):
             self.s.asked["_empatia"] = 1                  # la dolencia se acusa una vez, no cada turno
             return "empatia"
-        if p.n("accepts", 0.0) >= 0.6 or (act == "confirm" and p.act[1] >= 0.6):
-            return "acuerdo"
+        hay_oferta = any(self.s.offers.get(k, {}).get("status") == "open" for k in self.s.menu) or bool(self.s.prepared)
+        if hay_oferta and (p.n("accepts", 0.0) >= 0.6 or (act == "confirm" and p.act[1] >= 0.6)):
+            return "acuerdo"                              # solo se celebra lo que se acaba de aceptar de verdad
         if act in ("reject", "correct"):
             return "reparo"
         if act == "ask_question":
@@ -743,8 +744,9 @@ class Conv:
         kind = self.filler_kind(p)
         if kind is None or s.turn - getattr(s, "filler_turn", -9) < 1:
             return
-        opts = [x for x in ARRANQUE.get(self.lang3(), ARRANQUE["en"])[kind] if x not in s.fillers[-2:]] or \
-            ARRANQUE.get(self.lang3(), ARRANQUE["en"])[kind]
+        lg, lc = p.c("lang")
+        lang = lg if lg in ARRANQUE and lc >= 0.6 else (s.lang if s.lang in ARRANQUE else "en")
+        opts = [x for x in ARRANQUE[lang][kind] if x not in s.fillers[-2:]] or ARRANQUE[lang][kind]
         word = opts[s.turn % len(opts)]
         s.filler_turn = s.turn
         s.fillers = (s.fillers + [word])[-4:]
@@ -862,8 +864,9 @@ class Conv:
                 r"\b(done|booked|you'?re (all )?set|moved|cancel+ed|registered|hecho|listo|reservad|queda|anulad|cambiad|fet)\b", fold(x))]
             said = " ".join(rest) or {"es": "¿Algo más?", "ca": "Alguna cosa més?"}.get(self.lang3(), "Anything else?")
         if s.said_filler:
-            said = MARCADOR_INICIAL.sub("", said, count=1)
-            said = (said[:1].upper() + said[1:]) if said else said
+            sin = MARCADOR_INICIAL.sub("", said, count=1).strip()
+            if sin:                                       # si la frase ERA solo el marcador, se deja como estaba
+                said = sin[:1].upper() + sin[1:]
             s.said_filler = False
         said = self.no_repetir(said)
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
@@ -1156,7 +1159,7 @@ class Conv:
             if not calls:
                 events.append(self._log("planner", step=step, ms=ms, said=text[:200]))
                 return text, ended, events
-            slow = [fc.name for fc in calls if fc.name in ACK and not (fc.name == "identify_patient" and not any(
+            slow = [] if s.said_filler else [fc.name for fc in calls if fc.name in ACK and not (fc.name == "identify_patient" and not any(
                 (fc.args or {}).get(k) for k in ("national_id", "date_of_birth", "phone")))]
             if step == 0 and slow and self.on_early and not self._dry and not text:
                 ack = ACK[slow[0]].get(self.lang3(), ACK[slow[0]]["en"])
