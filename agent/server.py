@@ -107,13 +107,23 @@ async def health():
 
 
 MONITOR_TOKEN = os.environ.get("MONITOR_TOKEN", "")
+CALL_TOKEN = os.environ.get("CALL_TOKEN", "")     # solo en la instancia local: llamadas desde la web de la arena
+
+
+def from_internet(headers) -> bool:
+    """Lo que entra por el túnel de Cloudflare trae cf-connecting-ip; lo del propio NAS (arneses, consola), no."""
+    return bool(headers.get("cf-connecting-ip"))
+
+
+def token_ok(expected: str, given: str | None) -> bool:
+    return secrets.compare_digest((given or "").encode(), expected.encode())
 
 
 @app.middleware("http")
 async def api_token(request, call_next):
-    """Con MONITOR_TOKEN, los datos de las llamadas (/api/…) solo con ?t=… (la salud y la llamada, abiertas)."""
-    if MONITOR_TOKEN and request.url.path.startswith("/api/") and \
-            not secrets.compare_digest(request.query_params.get("t", ""), MONITOR_TOKEN):
+    """Con MONITOR_TOKEN, los datos de las llamadas (/api/…) desde internet solo con ?t=… (la salud y la llamada, abiertas)."""
+    if MONITOR_TOKEN and request.url.path.startswith("/api/") and from_internet(request.headers) and \
+            not token_ok(MONITOR_TOKEN, request.query_params.get("t")):
         return JSONResponse({"detail": "token"}, status_code=401)
     return await call_next(request)
 
@@ -150,7 +160,7 @@ async def call_events(cid: str):
 @app.websocket("/monitor")
 async def monitor(ws: WebSocket):
     # con MONITOR_TOKEN, el monitor (transcripciones y nombres) solo con ?t=… correcto; /ws (la llamada) no cambia
-    if MONITOR_TOKEN and not secrets.compare_digest(ws.query_params.get("t", ""), MONITOR_TOKEN):
+    if MONITOR_TOKEN and from_internet(ws.headers) and not token_ok(MONITOR_TOKEN, ws.query_params.get("t")):
         await ws.close(code=4401)
         return
     await ws.accept()
@@ -171,6 +181,10 @@ async def monitor(ws: WebSocket):
 
 @app.websocket("/ws")
 async def twilio(ws: WebSocket):
+    # CALL_TOKEN (solo instancia local): la arena llama desde el navegador con ?t=…; Prosper llama a producción, sin él
+    if CALL_TOKEN and from_internet(ws.headers) and not token_ok(CALL_TOKEN, ws.query_params.get("t")):
+        await ws.close(code=4401)
+        return
     await ws.accept()
     call = TwilioCall(ws)
     try:

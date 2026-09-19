@@ -1,0 +1,11 @@
+[Unit]
+Description=Prosper: túnel de Cloudflare a la instancia LOCAL (7861, clínica simulada) para llamar desde la web de la arena
+After=network-online.target prosper-agent-local.service
+
+[Service]
+ExecStart=%h/.local/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:7861
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
