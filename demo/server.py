@@ -188,7 +188,8 @@ class VoiceCall:
         self.probe_lang: tuple | None = None
         self.probe_busy = False
         self.answered_text = ""
-        self.answered_act = -1           # intervención del transcriptor que estaba abierta al responder
+        self.answered_act = -1           # intervención del transcriptor del texto contestado
+        self.final_act = -1              # intervención del último definitivo aceptado
         self.turn_t0: float | None = None
         self.last_response_t = 0.0
         self.undo: tuple | None = None
@@ -419,6 +420,7 @@ class VoiceCall:
         else:
             self.segments.append(text.strip())
         self.interim = ""
+        self.final_act = max(self.final_act, act)
         full = " ".join(self.segments).strip()
         await self.emit("final", text=full, stt_ms=lag_ms, session=tag)
         self.spawn(self.endpoint(full, typed=False))
@@ -612,7 +614,7 @@ class VoiceCall:
             self.segments = []
             self.respond_timer = None
             self.answered_text = full
-            self.answered_act = self.ears.act if self.ears else -1
+            self.answered_act = self.final_act
             self.undo_requested = False
             t0 = time.perf_counter()
             before = copy.deepcopy(self.call.s)
