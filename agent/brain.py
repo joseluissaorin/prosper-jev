@@ -236,6 +236,41 @@ def is_greeting(text: str) -> bool:
     return 0 < len(ws) <= 6 and any(w in GREET_WORDS for w in ws) and all(w in GREET_FILL for w in ws)
 
 
+WORLD_LANGS = {"fr": "French", "de": "German", "it": "Italian", "pt": "Portuguese", "ro": "Romanian", "nl": "Dutch", "pl": "Polish",
+               "ru": "Russian", "uk": "Ukrainian", "ar": "Arabic", "zh": "Chinese"}
+TRANS_FILE = Path(__file__).parent / "cache" / "traducciones.json"
+try:
+    TRANS: dict[str, str] = json.loads(TRANS_FILE.read_text())
+except Exception:  # noqa: BLE001
+    TRANS = {}
+
+
+async def translate(text: str, lang: str) -> str:
+    """Una frase de la recepcionista al idioma de quien llama. Se traduce UNA vez y queda guardada: las frases fijas
+    (saludo, pedir datos, despedida) no vuelven a costar nada; las dinámicas (fechas, nombres) ~0,8 s la primera vez."""
+    key = f"{lang}|{text}"
+    if key in TRANS:
+        return TRANS[key]
+    cfg = types.GenerateContentConfig(
+        system_instruction=(f"Translate what a medical clinic receptionist says on the phone into {WORLD_LANGS.get(lang, lang)}. "
+                            "Natural, warm, spoken register. Keep people's names, doctor titles (Dr., Dra.), clinic and site names, "
+                            "dates, times and numbers exactly. Output only the translation."),
+        temperature=0, max_output_tokens=300, automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True))
+    try:
+        r = await asyncio.wait_for(GEMINI.aio.models.generate_content(model=EXTRACT_MODEL, contents=text, config=cfg), timeout=4)
+        out = (r.text or "").strip()
+    except Exception:  # noqa: BLE001
+        return text                                   # sin traducción, mejor en inglés que callados
+    if out:
+        TRANS[key] = out
+        try:
+            TRANS_FILE.parent.mkdir(exist_ok=True)
+            TRANS_FILE.write_text(json.dumps(TRANS, ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            pass
+    return out or text
+
+
 SALUDO = {"es": {"morning": "buenos días", "afternoon": "buenas tardes", "evening": "buenas noches"},
           "ca": {"morning": "bon dia", "afternoon": "bona tarda", "evening": "bona nit"}}
 LINE_LANGS_FILE = Path(__file__).parent / "calls" / "idioma_por_linea.json"
@@ -308,6 +343,7 @@ class St:
     started: float = field(default_factory=time.time)
     lang: str = "en"
     lang_locked: bool = False
+    speak_lang: str | None = None     # idioma «del mundo» de quien llama (fr, de, ar…): la salida se traduce
     history: list = field(default_factory=list)
     last_agent: str = ""
     line_matches: list = field(default_factory=list)
@@ -594,7 +630,8 @@ class Brain:
         }
         if True:
             q["lang"] = choice("Which language is `caller` MAINLY written in? Ignore isolated interjections or words from another "
-                               "language ('sí, sí', 'vale', 'genial') and ignore names.", {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque", "other": "Other"})
+                               "language ('sí, sí', 'vale', 'genial') and ignore names.", {"en": "English", "es": "Spanish", "ca": "Catalan", "gl": "Galician", "eu": "Basque",
+                                                                 **{k: v for k, v in WORLD_LANGS.items()}, "other": "Other"})
         if s.pending == "which_appt" and s.appts:
             q["appt"] = choice("Which of `appointments` does the caller mean in `caller`?", {a["appointment_id"]: self.appt_desc(a) for a in s.appts} | {"both": "More than one / all of them", "none": "None / unclear"})
         return q
@@ -643,6 +680,22 @@ class Brain:
     # ------------------------------------------------------------ turno
 
     async def handle(self, text: str, p: P, dry: bool = False) -> list[dict]:
+        outs = await self._handle(text, p, dry)
+        lang = getattr(self.s, "speak_lang", None)
+        if lang and not dry and not getattr(self, "_dry", False):
+            outs = await self.localize(outs, lang)
+        return outs
+
+    async def localize(self, outs: list[dict], lang: str) -> list[dict]:
+        """Las frases del agente, en el idioma de quien llama (traducidas una vez y guardadas para siempre)."""
+        says = [o for o in outs if o.get("kind") == "say" and o.get("text")]
+        res = await asyncio.gather(*[translate(o["text"], lang) for o in says], return_exceptions=True)
+        for o, r in zip(says, res):
+            if isinstance(r, str) and r:
+                o["text"] = r
+        return outs
+
+    async def _handle(self, text: str, p: P, dry: bool = False) -> list[dict]:
         if dry:
             shadow = Brain(self.s.call_id, self.s.from_number, self.s.stream_sid)
             shadow.s, shadow.catalog, shadow._dry = copy.deepcopy(self.s), self.catalog, True
@@ -682,6 +735,12 @@ class Brain:
                 lg = s.lang                                  # un voto; el siguiente turno decide
         elif s.lang_locked and lg == s.lang:
             s.ev.pop("lang_vote", None)
+        if lg in WORLD_LANGS and lc >= 0.8 and (words >= 3 or asks) and getattr(s, "speak_lang", None) != lg:
+            # otro idioma (francés, alemán, árabe…): la política compone en inglés y cada frase se traduce al hablar
+            s.speak_lang, s.lang, s.lang_locked = lg, "en", True
+            out.append(self._log("lang", lang=lg, conf=lc, switched=True, via="traducción"))
+        elif lg in ("en", "es", "ca") and lc >= 0.8 and words >= 4 and getattr(s, "speak_lang", None):
+            s.speak_lang = None                      # vuelve a un idioma propio
         if lg in ("en", "es", "ca") and ((not s.lang_locked and lc >= 0.7 and words >= 4) or (s.lang_locked and lg != s.lang and lc >= 0.9 and (words >= 6 or asks))):
             if lg != s.lang or not s.lang_locked:
                 out.append(self._log("lang", lang=lg, conf=lc, switched=s.lang_locked))
@@ -1874,7 +1933,7 @@ class Brain:
         if self.s.lang_locked and not self._dry:
             remember_line_language(self.s.from_number, self.s.lang)
         s = self.s
-        return {"call_id": s.call_id, "language": s.lang, "patient_id": (s.patient or {}).get("patient_id"),
+        return {"call_id": s.call_id, "language": getattr(s, "speak_lang", None) or s.lang, "patient_id": (s.patient or {}).get("patient_id"),
                 "outcome": ", ".join(x["action"] for x in s.submitted) or "none", "reason": s.refusal or s.oos,
                 "actions": [{**x["body"], "action": x["action"], "status": x.get("status")} for x in s.submitted],
                 "caller_relation": s.relation or "self", "duration_s": round(time.time() - s.started, 1), "trace": s.trace,
