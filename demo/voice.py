@@ -779,6 +779,7 @@ class ElevenMouth:
         self.fallback = fallback
         self.renders: dict[str, Render] = {}
         self.sem = asyncio.Semaphore(max_parallel)
+        self.max_parallel = max_parallel
         self.key_ = _eleven_key()
         self.enabled = bool(self.key_)
         self.http: httpx.AsyncClient | None = None
@@ -805,8 +806,9 @@ class ElevenMouth:
         return hashlib.sha1(f"el|{model}|{voice}|{lang or ''}|{fmt}|{text}".encode()).hexdigest()[:20]
 
     async def warm(self):
-        """Abre varias conexiones (en paralelo, para que queden varias en el pool) y las mantiene vivas."""
-        await asyncio.gather(self.fallback.warm(), self._ping(4), return_exceptions=True)
+        """Abre tantas conexiones como peticiones a la vez admite la cuenta (en paralelo, para que queden todas en el
+        pool) y las mantiene vivas: con varias llamadas a la vez, abrir una conexión nueva costaba ~1 s."""
+        await asyncio.gather(self.fallback.warm(), self._ping(self.max_parallel), return_exceptions=True)
         if self._keep is None:
             self._keep = asyncio.create_task(self._keepalive())
 
@@ -817,7 +819,7 @@ class ElevenMouth:
 
         async def one():
             try:
-                await cli.get("/v1/models", timeout=5)
+                await cli.get("/v1/user/subscription", timeout=5)   # la respuesta más pequeña
             except Exception as e:  # noqa: BLE001
                 log.warning("boca ElevenLabs: no se pudo abrir conexión: %s", e)
         await asyncio.gather(*[one() for _ in range(n)])
@@ -826,7 +828,7 @@ class ElevenMouth:
         while True:
             await asyncio.sleep(20)
             if time.time() - self.last_use > 15:
-                await self._ping(2)
+                await self._ping(self.max_parallel)
 
     def render(self, text: str, lang: str | None = None, fmt: str = "pcm24") -> Render:
         if not self.enabled or lang not in (None, "en", "es", "ca", "gl") or fmt not in ELEVEN_FORMATS:
