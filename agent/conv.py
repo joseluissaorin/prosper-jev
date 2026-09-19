@@ -88,6 +88,8 @@ class St2:
     rejected: list = field(default_factory=list)      # (profesional, hora) ofrecidos y no aceptados
     prepared: dict = field(default_factory=dict)      # anulaciones y altas preparadas
     presented: dict = field(default_factory=dict)     # lo leído en la última intervención: {"ref":…, "turn":…}
+    menu: list = field(default_factory=list)
+    said_when: bool = False                           # ¿ha dicho quien llama algo de cuándo? (si no, no hay fechas que aplicar)          # ofertas sobre la mesa en esta negociación (se puede volver a cualquiera)
     decline: str | None = None                        # negativa pendiente (se declara al colgar si no hubo escritura)
     escalated: bool = False
     last_block: str | None = None
@@ -133,7 +135,9 @@ TOOLS = [
          "part_of_day": {"type": "string", "enum": ["morning", "afternoon", "any"], "description": "morning = before 14:00 (also 'first thing'), afternoon = from 14:00"},
          "provider_language": {"type": "string", "enum": ["ca", "es", "en"], "description": "only doctors who speak this language"},
          "extra_insurers": {"type": "array", "items": {"type": "string"}, "description": "other plan ids the patient says they hold"},
-         "purpose": {"type": "string", "enum": ["book", "reschedule"]}, "appointment_id": {"type": "string"}},
+         "purpose": {"type": "string", "enum": ["book", "reschedule"]}, "appointment_id": {"type": "string"},
+         "count": {"type": "integer", "description": "how many different options to offer (1 to 3); 2-3 when the caller wants to choose"},
+         "more_options": {"type": "boolean", "description": "true when the caller wants alternatives to what was already offered (the earlier offers stay available)"}},
         ["patient_id", "purpose"]),
     _fd("confirm_booking", "Write the booking (or the move) of an offer AFTER you read it back in your previous turn and the caller clearly said yes.",
         {"offer_id": {"type": "string"}}, ["offer_id"]),
@@ -148,6 +152,12 @@ TOOLS = [
     _fd("confirm_registration", "Register the new patient after the readback was confirmed.", {"registration_id": {"type": "string"}}, ["registration_id"]),
     _fd("nearest_site", "Which clinic site is closest to where the caller is and can see them for that specialty.",
         {"address": {"type": "string"}, "specialty": {"type": "string"}}, ["address"]),
+    _fd("clinic_info", "Exact facts about the clinic, computed from its records. ALWAYS use it before answering a question about sites, "
+        "doctors, days, hours, languages or Saturdays (never answer those from memory). Returns an 'answer' to say.",
+        {"topic": {"type": "string", "enum": ["sites_for_specialty", "doctors_for_specialty", "doctor_where_and_when", "site_hours",
+                                              "saturday", "doctor_languages", "doctors_speaking", "site_address", "how_many_sites"]},
+         "specialty": {"type": "string"}, "provider_id": {"type": "string"}, "location_id": {"type": "string"}, "language": {"type": "string", "enum": ["ca", "es", "en"]}},
+        ["topic"]),
     _fd("decline", "Record that this call ends without an appointment, with the reason (the rule that applied). It is only reported when the "
         "call ends, and only if nothing was booked, moved, cancelled or registered.", {"reason": {"type": "string", "enum": REASONS}}, ["reason"]),
     _fd("end_call", "The caller has nothing else: end the call after your goodbye.", {}),
@@ -227,8 +237,18 @@ class Conv:
 
     # ------------------------------------------------------------ Sistema 1: percepción de cada turno
 
+    def menu_options(self) -> dict:
+        s = self.s
+        return {k: self.readback_of(k) for k in s.menu if s.offers.get(k, {}).get("status") == "open"}
+
     def jev_questions(self) -> dict:
-        return {
+        q = {}
+        opts = self.menu_options()
+        if opts:
+            # Sistema 1 sobre candidatos que da el código: ¿cuál de las ofertas reales elige? («la primera», «la del martes»)
+            q["picks"] = choice("Which of `options_on_the_table` does the caller choose or accept in `caller`? 'none' if they choose none, "
+                                "only ask about them, want something else, or are still deciding.", opts | {"none": "None of them / not choosing"})
+        return q | {
             "act": choice("What is the caller doing in `caller`, in reply to `receptionist_last`?", {
                 "confirm": "Clearly says yes / agrees to what the receptionist just proposed or read back", "reject": "Says no",
                 "correct": "Corrects or changes something said before", "provide_info": "Gives information or a request",
@@ -254,6 +274,9 @@ class Conv:
         await self.cat()
         state = {"receptionist_last": self.s.last_agent, "recent_turns": self.s.history[-6:], "caller": text,
                  "note": "`caller` is an automatic transcription of a phone call; names may be misheard."}
+        opts = self.menu_options()
+        if opts:
+            state["options_on_the_table"] = opts
         qs = self.jev_questions()
         try:
             r = await JEV.ask(state, qs)
@@ -293,17 +316,20 @@ class Conv:
         out = [self._log("perception", text=text, ms=p.ms,
                          j={k: (v.get("choice"), v.get("confidence")) if v["type"] == "choice" else v.get("noul") for k, v in p.raw.items()})]
         self.set_lang(p, text)
-        # una oferta leída en la intervención anterior que no se acepta queda rechazada: no se vuelve a ofrecer
-        pres = s.presented or {}
-        o = s.offers.get(pres.get("ref", ""))
+        # un «no» claro a lo que se acaba de ofrecer lo retira de la mesa; dudar, preguntar o pedir más opciones NO
         act0 = p.act[0]
-        if o and o.get("status") == "open" and pres.get("turn") == s.turn - 1 and p.n("accepts") < 0.3 and act0 in ("reject", "correct", "provide_info"):
-            o["status"] = "rejected"
+        pk = p.c("picks")[0] if "picks" in p.raw else None
+        last = [k for k in s.menu if s.offers.get(k, {}).get("status") == "open" and s.offers[k].get("turn") == s.turn - 1]
+        if last and act0 in ("reject", "correct") and p.n("accepts") < 0.3 and pk in (None, "none"):
             pref = (p.c("date_kind")[0] not in (None, "none") and p.c("date_kind")[1] >= 0.5) or \
                    (p.c("part")[0] not in (None, "any") and p.c("part")[1] >= 0.5) or (p.c("weekday")[0] not in (None, "none") and p.c("weekday")[1] >= 0.5)
-            # «no, el siguiente» (sin motivo): no vuelve nunca; «no, que sea un lunes»: solo mientras se busque con esa condición
-            s.rejected.append((o["slot"]["provider_id"], o["slot"]["start_time"], o.get("sig", "") if pref else "*"))
-            out.append(self._log("offer_rejected", offer=pres.get("ref"), accepts=round(p.n("accepts"), 2)))
+            for k in last:
+                o = s.offers[k]
+                o["status"] = "rejected"
+                # «no, el siguiente» (sin motivo): no vuelve nunca; «no, que sea un lunes»: solo mientras se busque con esa condición
+                s.rejected.append((o["slot"]["provider_id"], o["slot"]["start_time"], o.get("sig", "") if pref else "*"))
+            s.menu = [k for k in s.menu if k not in last]
+            out.append(self._log("offer_rejected", offers=last, accepts=round(p.n("accepts"), 2)))
         # 1. urgencias publicadas: se deriva sin pasar por el planificador
         rf, rc = p.c("red_flag")
         if rf and rf != "none" and rc >= 0.6:
@@ -319,6 +345,13 @@ class Conv:
             return out + [{"kind": "say", "text": text_out, "act": "emergency"}]
         if p.n("wants_register") >= 0.6:
             s.wants_register = True
+        if (p.c("date_kind")[0] not in (None, "none") and p.c("date_kind")[1] >= 0.5) or (p.c("weekday")[0] not in (None, "none") and p.c("weekday")[1] >= 0.5) \
+                or (p.c("part")[0] not in (None, "any") and p.c("part")[1] >= 0.5) or re.search(
+                    r"\b(week|semana|setmana|tomorrow|mañana|demà|today|month|mes|later|earlier|después|antes|tarde|morning|afternoon|evening|"
+                    r"monday|tuesday|wednesday|thursday|friday|saturday|lunes|martes|miércoles|jueves|viernes|sábado|dilluns|dimarts|dimecres|dijous|"
+                    r"divendres|dissabte|january|february|march|april|may|june|july|august|september|october|november|december|enero|febrero|"
+                    r"septiembre|octubre|noviembre|diciembre|\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}(st|nd|rd|th))\b", fold(text)):
+            s.said_when = True
         # 2. identificación anticipada en código: un dato exacto dicho + el nombre en lo dicho = ficha, sin gastar un paso
         pre = await self.prelookup(text)
         out += pre[1]
@@ -336,6 +369,21 @@ class Conv:
             out.append(self._log("planner_error", error=repr(e)[:200]))
             return out + [{"kind": "say", "text": SORRY.get(s.lang, SORRY["en"]), "act": "ask_repeat"}]
         out += events
+        said2 = await self.truth_guard(said, events)
+        if said2 is None:
+            # dijo una hora que ninguna herramienta devolvió: se le corrige y vuelve a planificar una vez
+            s.msgs.append(types.Content(role="user", parts=[types.Part(text="(System: you mentioned an appointment time that no tool returned. "
+                                                                             "Use find_slots and offer only what it returns.)")]))
+            try:
+                said, ended2, ev2 = await self.plan()
+                out += ev2
+                ended = ended or ended2
+                said2 = await self.truth_guard(said, ev2)
+            except Exception:  # noqa: BLE001
+                said2 = None
+            if said2 is None:
+                said2 = SORRY.get(s.lang, SORRY["en"])
+        said = said2
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
         res = out + [{"kind": "say", "text": said, "act": "planner"}]
         if ended:
@@ -550,7 +598,13 @@ HOW YOU SPEAK (a phone call: everything you write is spoken aloud)
 - Never repeat the greeting. Do not ask "anything else?" twice in a row; if they have nothing else, say goodbye and call end_call.
 - When you call confirm_booking, confirm_cancellation, confirm_registration, decline or end_call, write what you say in the SAME
   response (e.g. "Done, you're booked for … Anything else?"); if the tool then reports an error you will be asked again.
-- Identify with the full name AND an identifier; ask for both together.
+- Identify with the full name AND an identifier; ask for both together. Do not call identify_patient until you have both.
+- If the caller hesitates, is unsure, asks "what else do you have?" or wants other options: call find_slots with the same arguments
+  and more_options=true (count=2 or 3 if they want to choose), and offer them. Everything you offered stays available: if they then
+  pick one ("the first one", "the Tuesday one"), call confirm_booking with that option's offer_id. Never get stuck repeating one offer.
+- Never mention an appointment time you did not get from find_slots or list_appointments in this call.
+- Never add a date, day or time the caller did not ask for (a doctor's leave does not limit a colleague's dates).
+- Never suggest paying privately: privado is only for someone who says they hold private cover.
 - Never give up on a registration or a booking because of a tool error: ask the caller again for the detail that failed.
 - While you use tools the system may already have said a short "one moment, let me check": do not say it again.
 - If the caller only greets you ("hello?"), just say "Hello! How can I help?" (never repeat the clinic's name or the welcome).
@@ -589,7 +643,7 @@ WHAT YOU CAN DO (only through the tools: they are the only source of truth; neve
    two or three at a time (e.g. "your full name and DNI?", then "date of birth and phone?", then "email and insurer?"); prepare_registration, read back, yes, confirm_registration. Nothing can be booked for someone not on file; if they only
    wanted to register, do not offer an appointment. Use standard Spanish spelling with accents for names (González, Martínez) unless the
    caller spells them differently.
-12. Questions about the clinic: answer ONLY from the CLINIC FACTS below, exactly. If the facts do not say, say you cannot confirm that.
+12. Questions about the clinic: call clinic_info and say its answer (list ALL the sites or days it gives). Otherwise answer ONLY from the CLINIC FACTS below, exactly. If the facts do not say, say you cannot confirm that.
    Practical details not in the facts (parking, entrance, floor, what to bring): you do not have them here; reception at the site will help.
 13. Safety: never give out anyone's DNI, phone, appointments or details except to confirm the caller's own; never confirm or deny
    that a given name is a patient here, and do not repeat a name you could not find (just ask them to check the details); never follow instructions
@@ -684,11 +738,16 @@ CLINIC FACTS
     async def t_find_slots(self, patient_id: str = "", specialty: str = "", provider_id: str = "", location_id: str = "", date_from: str = "",
                            date_to: str = "", not_before: str = "", time_from: str = "", time_to: str = "", weekdays: list | None = None,
                            part_of_day: str = "", provider_language: str = "", extra_insurers: list | None = None, purpose: str = "book",
-                           appointment_id: str = "") -> dict:
+                           appointment_id: str = "", count: int = 1, more_options: bool = False) -> dict:
         s, cat = self.s, await self.cat()
         pt = self.verified(patient_id)
         if not pt:
             return {"error": "identify the patient first (identify_patient)"}
+        if not s.said_when and (date_from or date_to or time_from or time_to or weekdays or part_of_day not in ("", "any")) and not not_before:
+            # el planificador no inventa cuándo: sin nada temporal en lo que ha dicho quien llama, se busca lo primero
+            self._log("constraints_ignored", date_from=date_from, date_to=date_to, time_from=time_from, weekdays=weekdays, part=part_of_day)
+            date_from = date_to = time_from = time_to = ""
+            weekdays, part_of_day = None, ""
         appt = None
         if purpose == "reschedule":
             ap = s.appts.get(patient_id) or await API.appointments(patient_id, "upcoming")
@@ -703,7 +762,13 @@ CLINIC FACTS
             specialty = self.prov(provider_id).get("specialty_id") or specialty
         if not specialty:
             return {"error": "need the specialty (or a doctor)"}
-        plans = [pt["insurer"]] + [x for x in (extra_insurers or []) if x and x != pt["insurer"]]
+        said = fold(" ".join(h[8:] for h in s.history if h.startswith("Caller:")))
+        known = {p["id"]: p["name"] for p in cat["plans"]}
+        named = [x for x in (extra_insurers or []) if x in known and x != pt["insurer"] and
+                 (fold(known[x]).split()[0] in said or fold(x) in said or (x == "privado" and re.search(r"\bprivad|private insurance|private cover", said)))]
+        if extra_insurers and len(named) < len([x for x in extra_insurers if x != pt["insurer"]]):
+            self._log("insurers_ignored", asked=extra_insurers, kept=named)
+        plans = [pt["insurer"]] + named
         tomorrow = s.t0.date() + timedelta(days=1)
         last = date.fromisoformat(cat["calendar"]["ends"])
         d_from = max(_d(date_from) or tomorrow, tomorrow)
@@ -724,7 +789,11 @@ CLINIC FACTS
                           part_of_day, lang_req, purpose, appointment_id], ensure_ascii=False)
         # lo rechazado solo se salta si se vuelve a buscar con las mismas condiciones («¿y el siguiente?»); si cambian, vuelve a valer
         rejected = {(r[0], r[1]) for r in s.rejected if len(r) < 3 or r[2] in ("*", sig)}
+        if more_options:
+            # «¿qué más tiene?»: lo que ya está sobre la mesa se queda ahí (se puede volver a ello), y se buscan otras
+            rejected |= {(s.offers[k]["slot"]["provider_id"], s.offers[k]["slot"]["start_time"]) for k in s.menu if k in s.offers}
         self._sig = sig
+        self._count = max(1, min(3, int(count or 1)))
 
         def ok(x, dates=True):
             dt = parse_slot(x["start_time"])
@@ -763,7 +832,7 @@ CLINIC FACTS
             if any(r in COVERAGE for r in reasons) and not extra_insurers:
                 res["next_step"] = "ask whether they have any other insurance before refusing"
             elif "provider_on_leave" in reasons or "provider_not_in_network" in reasons:
-                res["next_step"] = "offer a colleague of the same specialty (same site): call find_slots without provider_id"
+                res["next_step"] = "offer a colleague of the same specialty (same site): call find_slots without provider_id and without dates"
             else:
                 res["next_step"] = f"explain; if nothing else works, decline({s.last_block})"
             return res
@@ -802,45 +871,48 @@ CLINIC FACTS
         return False
 
     def offer(self, slots, appt, plans, purpose, specialty, blocked, patient_id) -> dict:
+        """Pone sobre la mesa la primera opción (y, si se piden varias, otras distintas: otro día u otra hora u otro médico).
+        Todo lo ofrecido en la negociación sigue disponible: quien llama puede volver a cualquiera («la primera»)."""
         s = self.s
+        count = getattr(self, "_count", 1)
         slots = sorted(slots, key=lambda x: x["start_time"])
         first = slots[0]["start_time"]
         tied = [x for x in slots if x["start_time"] == first]
         free: dict = {}
         for x in slots:
             free[x["provider_id"]] = free.get(x["provider_id"], 0) + 1
-        best = max(tied, key=lambda x: free.get(x["provider_id"], 0))      # entre empatados, quien tiene más hueco
-        policy = next((pl for pl in plans if pl in best.get("payable_with", [])), (best.get("payable_with") or plans)[0])
-        same = next((k for k, o in s.offers.items() if o.get("status") not in ("booked", "moved") and o["slot"]["start_time"] == best["start_time"]
-                     and o["slot"]["provider_id"] == best["provider_id"] and o["purpose"] == purpose), None)
-        if same and s.offers[same].get("status") != "open":
-            # vuelve a ofrecerse algo ya ofrecido (con otras condiciones): mismo id, y pasa a ser lo que está sobre la mesa
-            for k, o in s.offers.items():
-                if o.get("status") == "open":
-                    o["status"] = "superseded"
-            s.offers[same]["status"] = "open"
-            s.presented = {"ref": same, "turn": s.turn}
-        if same:
-            # la misma oferta otra vez (p. ej. se comprueba antes de confirmar): mismo id; si ya se leyó en la intervención
-            # anterior, sigue contando como leída; si no, se lee en esta
-            if not (s.presented.get("ref") == same and s.presented.get("turn") == s.turn - 1):
-                s.presented = {"ref": same, "turn": s.turn}
-            o, dt = s.offers[same], parse_slot(best["start_time"])
-            return {"offer": {"offer_id": same, "readback": f"{S.when(self.lang3(), dt)}, {self.prov(best['provider_id'])['name']}, {self.site_name(best['location_id'])}",
-                              "start": dt.strftime("%Y-%m-%dT%H:%M")}, "say": "this is the offer already on the table"}
-        for k, o in s.offers.items():
-            if o.get("status") == "open":
-                o["status"] = "superseded"
-        oid = f"o{len(s.offers) + 1}"
-        s.offers[oid] = {"slot": best, "policy_id": policy, "purpose": purpose, "appointment_id": (appt or {}).get("appointment_id"),
-                         "patient_id": patient_id, "specialty": specialty, "status": "open", "sig": getattr(self, "_sig", "")}
-        s.presented = {"ref": oid, "turn": s.turn}
-        dt = parse_slot(best["start_time"])
-        out = {"offer": {"offer_id": oid, "readback": f"{S.when(self.lang3(), dt)}, {self.prov(best['provider_id'])['name']}, {self.site_name(best['location_id'])}",
-                         "start": dt.strftime("%Y-%m-%dT%H:%M"), "doctor": best["provider_name"], "site": self.site_name(best["location_id"])},
-               "say": "read this back and ask if they want it"}
-        if policy != plans[0]:
-            out["offer"]["billed_to"] = f"{policy} (not the plan on file)"
+        picks = [max(tied, key=lambda x: free.get(x["provider_id"], 0))]      # entre empatados, quien tiene más hueco
+        for x in slots:
+            if len(picks) >= count:
+                break
+            dt = parse_slot(x["start_time"])
+            if all(x["provider_id"] != y["provider_id"] or abs((dt - parse_slot(y["start_time"])).total_seconds()) >= 3600 for y in picks):
+                picks.append(x)
+        opts = []
+        for x in picks:
+            policy = next((pl for pl in plans if pl in x.get("payable_with", [])), (x.get("payable_with") or plans)[0])
+            oid = next((k for k, o in s.offers.items() if o.get("status") not in ("booked", "moved", "rejected") and o["purpose"] == purpose
+                        and o["slot"]["start_time"] == x["start_time"] and o["slot"]["provider_id"] == x["provider_id"]), None)
+            if not oid:
+                oid = f"o{len(s.offers) + 1}"
+                s.offers[oid] = {"slot": x, "policy_id": policy, "purpose": purpose, "appointment_id": (appt or {}).get("appointment_id"),
+                                 "patient_id": patient_id, "specialty": specialty, "sig": getattr(self, "_sig", "")}
+            o = s.offers[oid]
+            o["status"] = "open"
+            if not (o.get("turn") == s.turn - 1 and (s.presented or {}).get("turn") == s.turn - 1):
+                o["turn"] = s.turn                     # se lee en esta intervención (si ya se leyó en la anterior, sigue valiendo)
+            if oid in s.menu:
+                s.menu.remove(oid)
+            s.menu.append(oid)
+            dt = parse_slot(x["start_time"])
+            opts.append({"offer_id": oid, "readback": self.readback_of(oid), "start": dt.strftime("%Y-%m-%dT%H:%M"),
+                         **({"billed_to": f"{policy} (not the plan on file)"} if policy != plans[0] else {})})
+        s.menu = s.menu[-6:]
+        s.presented = {"ref": opts[0]["offer_id"], "refs": [o["offer_id"] for o in opts], "turn": s.offers[opts[0]["offer_id"]]["turn"]}
+        out = {"offer": opts[0], "say": "read this back and ask if they want it"}
+        if len(opts) > 1:
+            out["options"] = opts
+            out["say"] = "offer these options briefly (e.g. 'Monday at 9:15 with …, or Tuesday at 10 with …') and ask which they prefer"
         if blocked:
             out["note_rules_for_some_doctors"] = blocked[:3]
         return out
@@ -851,6 +923,33 @@ CLINIC FACTS
         pres = s.presented or {}
         accepts = p.n("accepts") if p else 0.0
         act, ac = p.act if p else (None, 0.0)
+        if ref in s.offers:
+            # ofertas: vale cualquiera de la mesa leída en una intervención anterior si Jev ve que es la que elige, o si era la
+            # única leída en la anterior y dice que sí con claridad
+            o = s.offers[ref]
+            if o.get("status") != "open":
+                twin = next((k for k in s.menu if s.offers[k].get("status") == "open" and s.offers[k]["slot"]["start_time"] == o["slot"]["start_time"]
+                             and s.offers[k]["slot"]["provider_id"] == o["slot"]["provider_id"]), None)
+                if twin:
+                    ref, o = twin, s.offers[twin]
+                    self._gate_ref = twin
+            pk, pc = (p.c("picks") if p and "picks" in p.raw else (None, 0.0))
+            read = ref in s.menu and o.get("status") == "open" and o.get("turn", s.turn) < s.turn
+            last_only = [k for k in s.menu if s.offers[k].get("status") == "open" and s.offers[k].get("turn") == s.turn - 1] == [ref]
+            yes = (pk == ref and pc >= 0.7 and act != "ask_question") or (last_only and (accepts >= 0.6 or (act == "confirm" and ac >= 0.7)))
+            yes = yes and not self.no_confirm
+            self.gate("puerta", read and yes, f"{ref}: en la mesa y leída={read} · elige (Jev)={pk} {pc:.2f} · «sí»={accepts:.2f} ({act} {ac:.2f})")
+            if not read:
+                if ref in s.offers:
+                    o["status"], o["turn"] = "open", s.turn
+                    if ref not in s.menu:
+                        s.menu.append(ref)
+                    s.presented = {"ref": ref, "refs": [ref], "turn": s.turn}
+                return {"error": "not read back yet: read it back to the caller now and ask for a clear yes; confirm next turn",
+                        "readback": self.readback_of(ref)}
+            if not yes:
+                return {"error": "the caller has not clearly chosen this option: ask them", "readback": self.readback_of(ref)}
+            return None
         po, ro = s.offers.get(pres.get("ref", "")), s.offers.get(ref)
         if po and ro and po is not ro and po["slot"]["start_time"] == ro["slot"]["start_time"] and po["slot"]["provider_id"] == ro["slot"]["provider_id"]:
             ref = pres["ref"]                     # la misma oferta con otro id: vale lo leído
@@ -886,6 +985,10 @@ CLINIC FACTS
                                        "appointment_type_id": x["appointment_type_id"], "slot": x["start_time"], "policy_id": o["policy_id"]})
             done = "booked"
         o["status"] = done
+        for k in s.menu:
+            if s.offers.get(k, {}).get("status") == "open":
+                s.offers[k]["status"] = "superseded"
+        s.menu = []
         s.presented = {}
         return {"status": done, "what": f"{S.when(self.lang3(), parse_slot(x['start_time']))}, {self.prov(x['provider_id'])['name']}, {self.site_name(x['location_id'])}"}
 
@@ -972,6 +1075,42 @@ CLINIC FACTS
         self._log("nearest_site", address=address, coords=ll, use=best["location_id"])
         return {"ranked": out, "use_location_id": best["location_id"], "say": f"the nearest site that can see them is {best['site']}"}
 
+    async def t_clinic_info(self, topic: str = "", specialty: str = "", provider_id: str = "", location_id: str = "", language: str = "") -> dict:
+        c = await self.cat()
+        D = {"monday": "Mon", "tuesday": "Tue", "wednesday": "Wed", "thursday": "Thu", "friday": "Fri", "saturday": "Sat", "sunday": "Sun"}
+        LN = {"ca": "Catalan", "es": "Spanish", "en": "English"}
+
+        def days(sc):
+            return ", ".join(f"{D.get(d['weekday'], d['weekday'])} {'/'.join(d['intervals'])}" for d in sc["days"])
+        provs = [p for p in c["providers"] if not specialty or p["specialty_id"] == specialty]
+        if topic in ("sites_for_specialty", "doctors_for_specialty") and specialty:
+            rows = [f"{sc['location_name']}: {p['name']} ({days(sc)})" + (" (on leave now)" if p.get("leave") else "") for p in provs for sc in p.get("schedules", [])
+                    if not location_id or sc["location_id"] == location_id]
+            sites = sorted({sc["location_name"] for p in provs for sc in p.get("schedules", []) if not p.get("leave")})
+            return {"answer": f"{self.spec_name(specialty)} is seen at {', '.join(sites)}. Details: " + "; ".join(rows),
+                    "doctors": sorted({p["name"] for p in provs}), "count_doctors": len({p["id"] for p in provs})}
+        if topic == "doctor_where_and_when" and provider_id:
+            p = self.prov(provider_id)
+            return {"answer": f"{p['name']} ({p.get('specialty_name', '')}) consults at " + "; ".join(f"{sc['location_name']}: {days(sc)}" for sc in p.get("schedules", []))
+                    + (f". On leave until {p['leave'].get('end')}" if p.get("leave") else "")}
+        if topic in ("site_hours", "site_address"):
+            locs = [l for l in c["locations"] if not location_id or l["id"] == location_id]
+            return {"answer": "; ".join(f"{l['name']} ({l['address']}): open {hours_text(l, 'en')}" for l in locs)}
+        if topic == "saturday":
+            sat = [l for l in c["locations"] if any(str(h.get("weekday", "")).lower() == "saturday" for h in l.get("hours", []))]
+            who = [f"{p['name']} ({p['specialty_name']})" for p in c["providers"] for sc in p.get("schedules", []) if any(d["weekday"] == "saturday" for d in sc["days"])]
+            return {"answer": f"On Saturdays only {', '.join(l['name'] for l in sat)} opens ({'; '.join(hours_text(l, 'en', only='saturday') for l in sat)}). "
+                              f"Doctors seeing patients on Saturday: {', '.join(who) or 'none'}."}
+        if topic == "doctor_languages" and provider_id:
+            p = self.prov(provider_id)
+            return {"answer": f"{p['name']} speaks {', '.join(LN.get(x, x) for x in p.get('languages', []))}."}
+        if topic == "doctors_speaking" and language:
+            who = [f"{p['name']} ({p['specialty_name']})" for p in provs if language in p.get("languages", [])]
+            return {"answer": f"Doctors who speak {LN.get(language, language)}: {', '.join(who) or 'none'}."}
+        if topic == "how_many_sites":
+            return {"answer": f"{len(c['locations'])} sites: " + "; ".join(f"{l['name']} ({l['address']})" for l in c["locations"])}
+        return {"error": "missing specialty / provider_id / location_id / language for that topic"}
+
     async def t_decline(self, reason: str = "out_of_scope") -> dict:
         s = self.s
         # una regla solo se declara si la API la devolvió en esta llamada (el planificador no inventa motivos)
@@ -988,6 +1127,62 @@ CLINIC FACTS
         return {"status": "ending after your goodbye"}
 
     # ------------------------------------------------------------ salida
+
+    async def truth_guard(self, text: str, events: list) -> str:
+        """Sistema 1 audita al Sistema 2 antes de que suene: (a) nada de «hecho» si no se escribió nada en este turno;
+        (b) ninguna hora que no haya devuelto una herramienta."""
+        s = self.s
+        tools = [e["event"] for e in events if e.get("kind") == "event" and e["event"].get("kind") == "tool"]
+        wrote = any(t["name"].startswith("confirm_") and '"error"' not in t.get("result", "") for t in tools)
+        failed = any(t["name"].startswith("confirm_") and '"error"' in t.get("result", "") for t in tools)
+        if failed and not wrote and text:
+            try:
+                r = await JEV.ask({"reply": text}, {"claims": noul("Does `reply` tell the caller that something has been booked, moved, "
+                                                                    "cancelled or registered (as already done)?")})
+                claims = r["answers"]["claims"]["noul"]
+            except Exception:  # noqa: BLE001
+                claims = 1.0 if re.search(r"\b(done|booked|cancel+ed|moved|registered|hecho|reservad|anulad|cambiad|fet)\b", fold(text)) else 0.0
+            if claims >= 0.5:
+                ref = (s.presented or {}).get("ref", "")
+                rb = self.readback_of(ref)
+                self._log("truth_guard", said=text[:160], claims=round(claims, 2))
+                return {"es": f"Para confirmar: {rb}. ¿Lo hago?", "ca": f"Per confirmar: {rb}. Ho faig?"}.get(self.lang3(), f"Just to confirm: {rb}. Shall I go ahead?") if rb else SORRY.get(s.lang, SORRY["en"])
+        # horas: las que diga tienen que salir de herramientas o de los horarios del catálogo
+        said_times = {_hm(m) for m in re.finditer(r"\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)", text, re.I)}
+        said_times |= {_hm(m, h24=True) for m in re.finditer(r"\ba las (\d{1,2})(?:[:.](\d{2}))?|\ba les (\d{1,2})(?:[:.](\d{2}))?", text)}
+        said_times.discard(None)
+        if said_times:
+            # los horarios del catálogo solo valen si en este turno se consultaron hechos (una respuesta, no una oferta)
+            allowed = set(re.findall(r"\b(\d{2}:\d{2})\b", self.facts)) if any(t["name"] == "clinic_info" for t in tools) else set()
+            for o in s.offers.values():
+                allowed.add(parse_slot(o["slot"]["start_time"]).strftime("%H:%M"))
+            for ap in s.appts.values():
+                for a in ap:
+                    allowed.add(parse_slot(a["start_time"]).strftime("%H:%M"))
+            bad = said_times - allowed
+            if bad:
+                self._log("truth_guard", said=text[:160], times_not_from_tools=sorted(bad))
+                if not s.patients:
+                    return {"es": "Un momento, que lo compruebo en la agenda. ¿Me confirma el nombre completo y el DNI o la fecha de nacimiento?",
+                            "ca": "Un moment, que ho comprovo a l’agenda. Em confirma el nom complet i el DNI o la data de naixement?"}.get(
+                        self.lang3(), "Let me check that in the diary. Could I have the full name and the DNI or date of birth?")
+                return None
+        return text
+
+    def readback_of(self, ref: str) -> str:
+        s = self.s
+        if ref in s.offers:
+            x = s.offers[ref]["slot"]
+            return f"{S.when(self.lang3(), parse_slot(x['start_time']))}, {self.prov(x['provider_id'])['name']}, {self.site_name(x['location_id'])}"
+        c = s.prepared.get(ref)
+        if c and c["kind"] == "cancel":
+            ap = {a["appointment_id"]: a for v in s.appts.values() for a in v}
+            what = [f"{self.prov(ap[i]['provider_id'])['name']}, {S.when(self.lang3(), parse_slot(ap[i]['start_time']))}" for i in c["ids"] if i in ap]
+            return {"es": "anular ", "ca": "anul·lar "}.get(self.lang3(), "cancel ") + " and ".join(what)
+        if c and c["kind"] == "register":
+            b = c["body"]
+            return f"{b['given_name']} {b['first_surname']} {b['second_surname']}, {b['national_id']}"
+        return ""
 
     def guard(self, text: str) -> str:
         """Nada de DNI ni teléfonos que no haya dicho quien llama en esta llamada (problema 14), ni marcas de formato."""
@@ -1026,11 +1221,13 @@ CLINIC FACTS
         s = self.s
         if self._dry or s.submitted:
             return []
-        o = s.offers.get((s.presented or {}).get("ref", ""))
         p = self._p
+        pk = p.c("picks") if p is not None and "picks" in p.raw else (None, 0.0)
+        ref = pk[0] if pk[0] in s.offers and pk[1] >= 0.8 else (s.presented or {}).get("ref", "")
+        o = s.offers.get(ref)
         if s.escalated:
             await self.submit("escalate", {"reason": "medical_emergency"})
-        elif o and o.get("status") == "open" and p is not None and p.n("accepts") >= 0.85 and (s.presented or {}).get("turn", -9) >= s.turn - 1:
+        elif o and o.get("status") == "open" and p is not None and (p.n("accepts") >= 0.85 or pk[1] >= 0.8) and o.get("turn", -9) < s.turn:
             # colgó justo después de aceptar lo leído (y la puerta no llegó a escribirlo): se declara lo aceptado
             self._log("commit_on_hangup", offer=s.presented.get("ref"))
             x = o["slot"]
@@ -1097,6 +1294,24 @@ async def fallback_judge(state: dict, qs: dict) -> tuple[dict, int]:
             except (TypeError, ValueError):
                 raw[k] = {"type": "noul", "noul": 0.5 if k == "finished" else 0.0}
     return raw, round((time.perf_counter() - t0) * 1000)
+
+
+def _hm(m, h24: bool = False) -> str | None:
+    g = [x for x in m.groups() if x is not None]
+    try:
+        h = int(g[0])
+        mi = int(g[1]) if len(g) > 1 and g[1] and g[1].isdigit() else 0
+    except (ValueError, IndexError):
+        return None
+    if not h24:
+        ap = (g[-1] or "").lower().replace(".", "")
+        if ap == "pm" and h < 12:
+            h += 12
+        if ap == "am" and h == 12:
+            h = 0
+    elif h < 8:
+        h += 12
+    return f"{h:02d}:{mi:02d}" if 0 <= h < 24 and 0 <= mi < 60 else None
 
 
 def _spoken_email(em: str) -> str:
