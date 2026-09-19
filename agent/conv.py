@@ -325,24 +325,36 @@ class Conv:
     async def handle(self, text: str, p: P, dry: bool = False) -> list[dict]:
         key = (self.s.version, "".join(ch for ch in fold(text) if ch.isalnum()))
         if dry:
-            if key in self._spec:
-                return self._spec[key][1]
-            shadow = Conv(self.s.call_id, self.s.from_number, self.s.stream_sid)
-            shadow.s, shadow.catalog, shadow.facts, shadow._dry = copy.deepcopy(self.s), self.catalog, self.facts, True
-            outs = await shadow._handle(text, p)
-            self._spec[key] = (shadow, outs)
-            return outs
-        hit = self._spec.pop(key, None)
+            # especulación: el planificador en seco sobre el parcial que Jev da por terminado, mientras se cierra el turno
+            if key not in self._spec:
+                shadow = Conv(self.s.call_id, self.s.from_number, self.s.stream_sid)
+                shadow.s, shadow.catalog, shadow.facts, shadow._dry = copy.deepcopy(self.s), self.catalog, self.facts, True
+                shadow._line = getattr(self, "_line", [])
+                self._spec[key] = (shadow, asyncio.ensure_future(shadow._handle(text, p)), time.perf_counter())
+            try:
+                return await asyncio.shield(self._spec[key][1])
+            except Exception:  # noqa: BLE001
+                return []
+        hit = self._spec.get(key)
+        for k in [k for k in self._spec if k != key]:
+            self._spec[k][1].cancel()
         self._spec.clear()
-        if hit and not hit[0]._effects:
-            # la especulación ya planificó exactamente este turno y no escribió nada: se adopta su estado
-            self.s = hit[0].s
-            return [self._log("speculation_reused")] + hit[1]
+        if hit:
+            shadow, task, t0 = hit
+            try:
+                # el turno real espera a la especulación ya en marcha en vez de empezar de cero
+                outs = await asyncio.wait_for(asyncio.shield(task), timeout=8)
+            except Exception:  # noqa: BLE001
+                outs = None
+            if outs is not None and not shadow._effects:
+                self.s = shadow.s
+                return [self._log("speculation_reused", head_start_ms=round((time.perf_counter() - t0) * 1000))] + outs
         return await self._handle(text, p)
 
     async def _handle(self, text: str, p: P) -> list[dict]:
         s = self.s
         self._effects = []
+        self._said_done = False
         s.version += 1
         s.turn += 1
         s.history.append(f"Caller: {text}")
@@ -417,6 +429,11 @@ class Conv:
             if said2 is None:
                 said2 = SORRY.get(s.lang, SORRY["en"])
         said = said2
+        if getattr(self, "_said_done", False):
+            # la confirmación ya sonó al escribir: no se repite («Done, you're booked…» dos veces)
+            rest = [x for x in re.split(r"(?<=[.!?¡¿])\s+", said) if x and not re.search(
+                r"\b(done|booked|you'?re (all )?set|moved|cancel+ed|registered|hecho|listo|reservad|queda|anulad|cambiad|fet)\b", fold(x))]
+            said = " ".join(rest) or {"es": "¿Algo más?", "ca": "Alguna cosa més?"}.get(self.lang3(), "Anything else?")
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
         res = out + [{"kind": "say", "text": said, "act": "planner"}]
         if ended:
@@ -601,6 +618,7 @@ class Conv:
                     done = DONE.get(kind, DONE["booked"]).get(self.lang3(), DONE[kind]["en"]).format(w=res.get("what", ""))
                     try:
                         self.on_early(done)
+                        self._said_done = True
                         res = dict(res, already_said_to_caller=done, now="do not repeat it: just ask if there is anything else, or deal with their other request")
                         events.append(self._log("ack", text=done))
                     except Exception:  # noqa: BLE001
