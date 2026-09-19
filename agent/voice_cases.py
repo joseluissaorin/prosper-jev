@@ -116,8 +116,8 @@ def build() -> list[dict]:
     c("p6_adeslas_gine", "p6", "Zephyr", {"open": "Hello, I'd like the earliest gynaecology appointment.", "id": "María García López, born twelfth of March nineteen eighty-four.",
                                            "dob": "Twelfth of March, eighty-four.", "other_plan": "No, only Adeslas.", "yes": "Okay.", "bye": "Oh well. Thank you, bye."},
       E.no_action("specialty_not_covered"))
-    c("p6_axa_norte", "p6", "Leda", {**laura, "open": "Hi, I need a GP at Arenal Norte. I can only get to Norte.", "other_plan": "No, just AXA.",
-                                     "yes": "No, it has to be Norte.", "bye": "Alright, thanks anyway. Bye."},
+    c("p6_axa_sur", "p6", "Leda", {**laura, "open": "Hi, I need a GP at Arenal Sur. I can only get to Sur.", "other_plan": "No, just AXA.",
+                                   "yes": "No, it has to be Sur.", "bye": "Alright, thanks anyway. Bye."},
       E.no_action("location_not_covered"))
     c("p6_dkv_iglesias", "p6", "Despina", {"open": "Hello, I'd like dermatology with Doctora Iglesias please.", "id": f"Carmen López Díaz. DNI {s('39345092')} G.",
                                             "dni": f"{s('39345092')} G.", "dob": "First of December, nineteen sixty.", "other_plan": "No, only DKV.",
@@ -227,6 +227,7 @@ def build() -> list[dict]:
 
     # ── 16 · las preguntas (2)
     c("p16_sabado", "p16", "Charon", {**mario, "open": "Hi, which of your sites is open on Saturdays?",
+                                      "need": "Then I'd like a GP appointment on Saturday morning at that site, please.",
                                       "when": "Then Saturday morning at that site, please.", "specialty": "A GP. Saturday morning, at the one that's open."},
       E.book("P00005", E.earliest("general_practice", site="centro", patient="P00005", day=sat, part="morning", next_open=True), "sanitas"))
     c("p16_idiomas", "p16", "Puck", {"open": "Hello. Which of your GPs speak Catalan?", "when": "Then the earliest with that doctor, please.",

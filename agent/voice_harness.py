@@ -195,14 +195,26 @@ RULES = [
     (r"when would you like|what day|qué día|quin dia|when would|preference|move it to", "when"),
     (r"shall i|would that work|would you like|is all of that correct|se la reservo|l.hi reservo|le va bien|li va bé|lo confirmo|l.anul|la anulo|es todo correcto|és tot correcte|would any|okay\?", "yes"),
     (r"can't help with that|no puedo ayudarle|no el puc ajudar|can only help", "yes"),
-    (r"how can i help|what can i do|en qué puedo|en què el puc", "open"),
+    (r"how can i help|what can i do|en qué puedo|en què el puc", "need"),
 ]
 FALLBACK = {"given": "id", "surnames": "id", "dni": "id", "dob": "id", "phone": "id", "email": "bye", "insurer": "other_plan",
-            "which": "yes", "specialty": "open", "when": "yes", "register": "no", "other_plan": "no", "yes": "bye", "no": "bye", "id": "open"}
+            "which": "yes", "specialty": "open", "when": "yes", "register": "no", "other_plan": "no", "yes": "bye", "no": "bye", "id": "open",
+            "need": "open"}
 
 
 def pick(agent_text: str, lines: dict) -> str:
-    t = agent_text.lower()
+    """Contesta a la PREGUNTA final del agente (la última frase con «?»), no a cualquier palabra de su turno."""
+    sents = [x.strip() for x in re.split(r"(?<=[.?!])\s+", agent_text) if x.strip()]
+    qs = [x for x in sents if x.endswith("?")]
+    focus = (qs[-1] if qs else (sents[-1] if sents else agent_text)).lower()
+    for t in (focus, agent_text.lower()):
+        k = _pick(t, lines)
+        if k:
+            return k
+    return "bye" if "bye" in lines else list(lines)[-1]
+
+
+def _pick(t: str, lines: dict) -> str | None:
     for rx, key in RULES:
         if re.search(rx, t):
             k = key
@@ -211,7 +223,7 @@ def pick(agent_text: str, lines: dict) -> str:
                 seen.add(k)
                 k = FALLBACK.get(k, "bye")
             return k if (k in lines or k in ("END", "REPEAT")) else "bye"
-    return "bye" if "bye" in lines else list(lines)[-1]
+    return None
 
 # ---------------------------------------------------------------- una llamada
 

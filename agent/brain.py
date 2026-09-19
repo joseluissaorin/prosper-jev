@@ -101,6 +101,63 @@ def fold(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", (s or "").lower()) if not unicodedata.combining(c))
 
 
+DIGITS = {"zero": "0", "oh": "0", "one": "1", "two": "2", "three": "3", "four": "4", "for": "4", "five": "5", "six": "6", "seven": "7",
+          "eight": "8", "nine": "9", "cero": "0", "uno": "1", "un": "1", "dos": "2", "tres": "3", "cuatro": "4", "cinco": "5", "seis": "6",
+          "siete": "7", "ocho": "8", "nueve": "9", "u": "1", "quatre": "4", "cinc": "5", "sis": "6", "set": "7", "vuit": "8", "nou": "9"}
+LETTER_WORDS = {"hache": "H", "jota": "J", "equis": "X", "zeta": "Z", "ye": "Y", "i griega": "Y", "ele": "L", "eme": "M", "ene": "N",
+                "ese": "S", "erre": "R", "te": "T", "uve": "V", "be": "B", "ce": "C", "de": "D", "efe": "F", "ge": "G", "ka": "K", "pe": "P",
+                "cu": "Q", "aitch": "H", "haitch": "H", "jay": "J", "kay": "K", "ell": "L", "em": "M", "en": "N", "es": "S", "ess": "S",
+                "tee": "T", "vee": "V", "double u": "W", "ex": "X", "why": "Y", "zed": "Z", "zee": "Z", "bee": "B", "see": "C", "dee": "D",
+                "gee": "G", "pee": "P", "cue": "Q", "are": "R", "ar": "R", "eff": "F"}
+
+
+def spoken_id(text: str) -> str | None:
+    """DNI/NIE dicho en voz, leído en código: cifras (en cifra o en palabra) y la letra final. Complementa a la
+    extracción cuando el transcriptor trocea las cifras («Four. 6 78 91 2 S»)."""
+    t = fold(text).replace("-", " ")
+    t = re_sub(r"\b(letter|letra|lletra)\b", " ", t)
+    toks = re_findall(r"[a-z]+|\d+", t)
+    digits, letters, first_letter = "", [], None
+    for i, w in enumerate(toks):
+        if w.isdigit():
+            digits += w
+        elif w in DIGITS and (digits or (i + 1 < len(toks) and (toks[i + 1].isdigit() or toks[i + 1] in DIGITS))):
+            digits += DIGITS[w]
+        elif len(w) == 1 and w.isalpha():
+            if not digits and w in "xyz":
+                first_letter = w.upper()
+            elif digits:
+                letters.append(w.upper())
+        elif w in LETTER_WORDS and digits:
+            letters.append(LETTER_WORDS[w])
+    need = 7 if first_letter else 8
+    if len(digits) < need:
+        return None
+    digits = digits[-need:]
+    return (first_letter or "") + digits + (letters[-1] if letters else "")
+
+
+def re_sub(a, b, c):
+    import re
+    return re.sub(a, b, c)
+
+
+def re_findall(a, c):
+    import re
+    return re.findall(a, c)
+
+
+def name_sim(a: str, b: str) -> float:
+    """Parecido entre dos nombres, tolerante a errores del transcriptor."""
+    import difflib
+    fa, fb = " ".join(fold(a).split()), " ".join(fold(b).split())
+    if not fa or not fb:
+        return 0.0
+    ta, tb = set(fa.split()), set(fb.split())
+    jac = len(ta & tb) / max(1, len(ta | tb))
+    return max(difflib.SequenceMatcher(None, fa, fb).ratio(), jac)
+
+
 def grounded(name_part: str, text: str) -> bool:
     """Un nombre extraído solo vale si sus palabras están en lo que dijo quien llama (nada de nombres inventados)."""
     words = fold(name_part).split()
@@ -437,6 +494,8 @@ class Brain:
                 person = {k: v for k, v in person.items() if k == "role" or (v and grounded(v, text))}
                 if not person.get("first_surname") and not person.get("given_name"):
                     continue
+                if self.is_doctor_name(person, text):
+                    continue
                 if want_role and person.get("role") in ("patient", "other"):
                     chosen = person
                 elif not want_role or chosen is None:
@@ -447,11 +506,16 @@ class Brain:
                     s.ev["caller_name"] = nm
                 else:
                     s.ev["name"] = nm
-            if ex.get("national_id"):
-                nid, why = normalize_national_id(ex["national_id"])
-                out.append(self._log("dni", said=ex["national_id"], normalized=nid, why=why))
+            said_id = ex.get("national_id")
+            coded = spoken_id(text)
+            if coded and (not said_id or len("".join(c for c in said_id if c.isdigit())) < len("".join(c for c in coded if c.isdigit()))):
+                said_id = coded
+            if said_id:
+                nid, why = normalize_national_id(said_id)
+                out.append(self._log("dni", said=said_id, normalized=nid, why=why))
                 if nid:
                     s.ev["national_id"] = nid
+                    s.ev.pop("bad_id", None)
                 else:
                     s.ev["bad_id"] = why
             if ex.get("phone") and len("".join(c for c in ex["phone"] if c.isdigit())) >= 9:
@@ -484,6 +548,10 @@ class Brain:
         if p.n("gives_address") >= 0.6 and ex.get("address"):
             s.address = ex["address"]
         dk, dc = p.c("date_kind")
+        probs = (p.raw.get("date_kind") or {}).get("probabilities", {})
+        wk_kinds = ("this_coming", "first_thing", "weekday_afternoon")
+        if dk in wk_kinds and dc < 0.55 and sum(probs.get(k, 0) for k in wk_kinds) >= 0.6:
+            dc = 0.6   # Jev duda entre formas de decir el mismo día de la semana: el día está claro
         if dk and dk != "none" and dc >= 0.55:
             wd, _ = p.c("weekday")
             day, part = self.resolve_day(dk, wd, ex.get("appointment_date"))
@@ -515,6 +583,8 @@ class Brain:
             ap, apc = p.c("appt")
             if ap and ap in {a["appointment_id"] for a in s.appts} and apc >= 0.6:
                 s.target = ap
+            elif ap == "both" and apc >= 0.6 and s.intent == "cancel":
+                s.target = ",".join(a["appointment_id"] for a in s.appts)
         # alta: campos
         if s.intent == "register":
             out += self.absorb_register(p)
@@ -528,8 +598,9 @@ class Brain:
                 out.append(self._log("offer_rejected", act=act))
         elif s.pending == "confirm_cancel" and s.target:
             if act == "confirm" and ac >= 0.8:
-                out += await self.submit("cancel", {"appointment_id": s.target})
-                s.appts = [a for a in s.appts if a["appointment_id"] != s.target]
+                for aid in s.target.split(","):
+                    out += await self.submit("cancel", {"appointment_id": aid})
+                s.appts = [a for a in s.appts if a["appointment_id"] not in s.target.split(",")]
                 s.target = None
                 s.pending = "anything_else"
                 out.append(self._say("cancelled"))
@@ -572,52 +643,83 @@ class Brain:
 
     # ------------------------------------------------------------ identidad
 
+    def is_doctor_name(self, person: dict, text: str) -> bool:
+        """«Doctor Saez», «Doctora Iglesias»: es un profesional, no quien llama ni el paciente."""
+        surs = {fold(p["name"]).replace(".", " ").split()[-1] for p in (self.catalog or {}).get("providers", [])}
+        parts = [fold(person.get(k) or "") for k in ("given_name", "first_surname", "second_surname")]
+        t = fold(text)
+        for part in parts:
+            if part and part.split()[-1] in surs and re_findall(r"(doctor|doctora|dr|dra|doctor a)\.?\s+" + re_sub(r"\W", ".", part), t):
+                return True
+        return False
+
+    def pick_by_name(self, ms: list[dict], name: str | None):
+        if not ms:
+            return None, 0.0, 0.0
+        if not name:
+            return (ms[0], 1.0, 0.0) if len(ms) == 1 else (None, 0.0, 0.0)
+        scored = sorted(((name_sim(name, f"{m['given_name']} {m['first_surname']} {m['second_surname']}"), m) for m in ms), key=lambda x: -x[0])
+        return scored[0][1], scored[0][0], (scored[1][0] if len(scored) > 1 else 0.0)
+
     async def identify(self) -> list[dict] | None:
+        """Primero el dato exacto (DNI, fecha de nacimiento, teléfono dicho o la línea); el nombre confirma con
+        tolerancia, porque el transcriptor a veces lo destroza («Pau Vidal Serra» → «Pablo Vilar Sáenz»)."""
         s, ev = self.s, self.s.ev
         other = s.relation not in (None, "self")
         if ev.get("bad_id"):
             ev.pop("bad_id")
+            s.id_tries += 1
             s.pending = "identity"
-            return [self._log("identity", step="letra del DNI no cuadra"), self._say("id_letter_bad")]
+            if s.id_tries <= 2:
+                return [self._log("identity", step="letra del DNI no cuadra"), self._say("id_letter_bad")]
         name = ev.get("name")
-        # sin nombre: si la línea es de una sola ficha y es para quien llama, se pide confirmar por nombre
-        if not name:
+        probes = []
+        if ev.get("national_id"):
+            probes.append(("dni", {"national_id": ev["national_id"]}))
+        if ev.get("dob"):
+            probes.append(("nacimiento", {"date_of_birth": ev["dob"]}))
+        if ev.get("phone"):
+            probes.append(("teléfono", {"phone": ev["phone"]}))
+        if s.from_number:
+            probes.append(("línea", {"phone": s.from_number}))
+        if not name and not probes:
             s.pending = "identity"
             return [self._say("ask_patient_identity" if other else "ask_identity_self")]
-        tries = []
-        if ev.get("national_id"):
-            tries.append({"name": name, "national_id": ev["national_id"]})
-        if ev.get("phone"):
-            tries.append({"name": name, "phone": ev["phone"]})
-        if ev.get("dob"):
-            tries.append({"name": name, "date_of_birth": ev["dob"]})
-        if s.from_number and s.line_matches:
-            # el número desde el que llama es la segunda prueba si el nombre dicho es el de esa ficha
-            tries.append({"name": name, "phone": s.from_number})
-        if not tries:
+        found, why, missed_dni, ambiguous = None, "", False, False
+        for label, q in probes:
+            ms = await API.directory(**q)
+            if other and ev.get("caller_name"):
+                ms = [m for m in ms if name_sim(ev["caller_name"], f"{m['given_name']} {m['first_surname']} {m['second_surname']}") < 0.8] or ms
+            best, score, second = self.pick_by_name(ms, name)
+            if not ms:
+                missed_dni = missed_dni or label == "dni"
+                continue
+            if label == "línea" and not name:
+                continue   # la línea es solo una pista: sin nombre no identifica
+            if best and ((len(ms) == 1 and (score >= 0.35 or label == "dni")) or (score >= 0.55 and score - second >= 0.15)):
+                found, why = best, f"{label} + nombre {score:.2f}"
+                break
+            if len(ms) > 1:
+                ambiguous = True
+        if not found and name and not probes:
             ms = await API.directory(name=name)
             s.pending = "identity_second"
             if len(ms) > 1:
                 return [self._log("identity", step="homónimos", n=len(ms)), self._say("ask_dob", name=name)]
             return [self._log("identity", step="falta segundo dato", n=len(ms)), self._say("ask_second_id")]
-        found = None
-        for q in tries:
-            ms = await API.directory(**q)
-            if len(ms) == 1:
-                found = ms[0]
-                break
-            if len(ms) > 1:
-                s.pending = "identity_second"
-                return [self._log("identity", step="varias fichas", query=q, n=len(ms)), self._say("ask_dob", name=name)]
         if not found:
             s.id_tries += 1
-            if s.id_tries <= 1 and ev.get("national_id"):
+            if missed_dni and s.id_tries <= 2:
                 ev.pop("national_id", None)
                 s.pending = "identity"
                 return [self._log("identity", step="sin coincidencia con el DNI"), self._say("repeat_id")]
-            if s.id_tries <= 1:
+            if not name:
                 s.pending = "identity"
-                return [self._log("identity", step="sin coincidencia"), self._say("ask_second_id")]
+                return [self._log("identity", step="falta el nombre"), self._say("ask_patient_identity" if other else "ask_identity_self")]
+            if s.id_tries <= 2 and not (ev.get("dob") and ev.get("national_id")):
+                s.pending = "identity_second"
+                key = "ask_dob" if ambiguous else "ask_second_id"
+                return [self._log("identity", step="sin coincidencia" if not ambiguous else "varias fichas"), self._say(key, name=name)]
             s.refusal = "patient_not_found"
             s.pending = "not_found"
             return [self.gate("identidad", False, "no está en el directorio"), self._say("not_found")]
@@ -625,7 +727,7 @@ class Brain:
         s.plans = [found["insurer"]] + [x for x in s.plans if x != found["insurer"]]
         s.pending = "identified"
         first = found["given_name"]
-        g = self.gate("identidad", True, f"{found['patient_id']} {first} {found['first_surname']} · {found.get('note', '')[:90]}")
+        g = self.gate("identidad", True, f"{found['patient_id']} {first} {found['first_surname']} ({why}) · {found.get('note', '')[:80]}")
         self._greeted = [g, self._say("identified_other" if other else "identified", first=first)]
         return None
 
@@ -863,6 +965,12 @@ class Brain:
                 s.pending = "which_appt"
                 opts = [self.appt_desc(a) for a in s.appts]
                 return out + [self._say("which_appt", options=", and ".join(opts))]
+        if "," in s.target and s.intent == "cancel":
+            s.pending = "confirm_cancel"
+            descs = [self.appt_desc(x) for x in s.appts if x["appointment_id"] in s.target.split(",")]
+            return out + [self._text({"en": f"So that's both: the {' and the '.join(descs)}. Shall I cancel them?",
+                                      "es": f"Entonces las dos: {' y '.join(descs)}. ¿Las anulo?", "ca": f"Doncs les dues: {' i '.join(descs)}. Les anul·lo?"}[s.lang],
+                                     "confirm_cancel")]
         a = next(x for x in s.appts if x["appointment_id"] == s.target)
         if s.intent == "cancel":
             s.pending = "confirm_cancel"
@@ -880,36 +988,59 @@ class Brain:
     REG_FIELDS = ["given_name", "surnames", "national_id", "date_of_birth", "phone", "email", "insurer"]
 
     def absorb_register(self, p: P) -> list[dict]:
+        """Cada dato del alta se toma cuando es el que se ha preguntado (o si aún no se ha empezado y lo dice todo
+        de una vez). Así un apellido no sale del DNI ni el seguro de otra frase."""
         s, ex, out = self.s, p.ex, []
+        ask = s.pending[4:] if s.pending.startswith("reg_") else None
+        fresh = ask is None
+        text = p.text
         for person in ex.get("people") or []:
-            person = {k: v for k, v in person.items() if k == "role" or (v and grounded(v, p.text))}
-            if person.get("given_name") and not s.reg.get("given_name"):
+            person = {k: v for k, v in person.items() if k == "role" or (v and grounded(v, text))}
+            if person.get("role") == "other":
+                continue
+            if person.get("given_name") and (ask == "given_name" or (fresh and not s.reg.get("given_name"))):
                 s.reg["given_name"] = person["given_name"]
-            if person.get("first_surname"):
-                s.reg["first_surname"] = person["first_surname"]
-            if person.get("second_surname"):
-                s.reg["second_surname"] = person["second_surname"]
-        if ex.get("national_id"):
-            nid, why = normalize_national_id(ex["national_id"])
-            out.append(self._log("dni", said=ex["national_id"], normalized=nid, why=why))
-            if nid:
-                s.reg["national_id"] = nid
-            else:
-                s.reg["_bad_tries"] = s.reg.get("_bad_tries", 0) + 1
-                raw = "".join(c for c in ex["national_id"].upper() if c.isalnum())
-                if s.reg["_bad_tries"] >= 2 and "letra" in why:
-                    fixed, _ = normalize_national_id(raw[:-1])     # las cifras mandan; la lectura final lo confirma
-                    if fixed:
-                        s.reg["national_id"] = fixed
-                        out.append(self._log("dni", derived=fixed))
-                        return out
-                s.reg.pop("national_id", None)
-                s.reg["_bad_id"] = why
-        for k_ex, k in (("date_of_birth", "date_of_birth"), ("phone", "phone"), ("email", "email")):
-            if ex.get(k_ex):
-                s.reg[k] = ex[k_ex].strip().lower() if k == "email" else ex[k_ex]
+            if ask in ("surnames", "given_name") or fresh:
+                if person.get("first_surname"):
+                    s.reg["first_surname"] = person["first_surname"]
+                if person.get("second_surname"):
+                    s.reg["second_surname"] = person["second_surname"]
+        if ask == "surnames" and not (s.reg.get("first_surname") and s.reg.get("second_surname")):
+            ws = [w.strip(".,") for w in text.split() if w[:1].isupper() and grounded(w.strip(".,"), text)]
+            if len(ws) >= 2:
+                s.reg["first_surname"], s.reg["second_surname"] = ws[-2], ws[-1]
+        if ask == "national_id" or fresh or ex.get("national_id"):
+            said_id = ex.get("national_id")
+            coded = spoken_id(text)
+            if coded and (not said_id or len("".join(c for c in said_id if c.isdigit())) < len("".join(c for c in coded if c.isdigit()))):
+                said_id = coded
+            if said_id and (ask == "national_id" or fresh or len(said_id) >= 8):
+                nid, why = normalize_national_id(said_id)
+                out.append(self._log("dni", said=said_id, normalized=nid, why=why))
+                if nid:
+                    s.reg["national_id"] = nid
+                    s.reg.pop("_bad_tries", None)
+                else:
+                    s.reg["_bad_tries"] = s.reg.get("_bad_tries", 0) + 1
+                    raw = "".join(c for c in said_id.upper() if c.isalnum())
+                    if s.reg["_bad_tries"] >= 2 and "letra" in why:
+                        fixed, _ = normalize_national_id(raw[:-1])     # las cifras mandan; la lectura final lo confirma
+                        if fixed:
+                            s.reg["national_id"] = fixed
+                            out.append(self._log("dni", derived=fixed))
+                            return out
+                    s.reg.pop("national_id", None)
+                    s.reg["_bad_id"] = why
+        if ex.get("date_of_birth") and (ask == "date_of_birth" or fresh or "born" in fold(text) or "naci" in fold(text)):
+            s.reg["date_of_birth"] = ex["date_of_birth"]
+        if ask == "phone":
+            digits = "".join(c for c in (ex.get("phone") or "") if c.isdigit()) or "".join(DIGITS.get(w, w if w.isdigit() else "") for w in re_findall(r"[a-z]+|\d+", fold(text)))
+            if len(digits) >= 9:
+                s.reg["phone"] = digits
+        if ex.get("email") and (ask == "email" or "@" in ex["email"]):
+            s.reg["email"] = ex["email"].strip().lower().replace(" ", "")
         ins, ic = p.c("insurer")
-        if ins and ins != "none" and ic >= 0.6:
+        if ins and ins != "none" and ic >= 0.6 and ask == "insurer":
             s.reg["insurer"] = ins
         return out
 

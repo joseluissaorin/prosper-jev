@@ -35,7 +35,7 @@ import system2
 from jev import JEV, JevError, choice
 from policy import Call
 from sense import LANG, perceive
-from voice import MOUTH, Ears, Vad, fixed_phrases
+from voice import MOUTH, Ears, Vad, fixed_phrases, make_vad
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -155,7 +155,11 @@ class VoiceCall:
         self.ws = ws
         self.call: Call | None = None
         self.tts = True
-        self.vad = Vad()
+        self.vad = make_vad()
+        self.ring: list[bytes] = []      # últimos ~400 ms de audio (se mandan al abrir el turno)
+        self.turn_open = False
+        self.close_task: asyncio.Task | None = None
+        self.interim_t = 0.0
         self.ears: Ears | None = None
         self.segments: list[str] = []
         self.interim = ""
@@ -196,12 +200,134 @@ class VoiceCall:
     def spawn(self, coro):
         t = asyncio.create_task(coro)
         self.bg.add(t)
-        t.add_done_callback(self.bg.discard)
+
+        def done(task):
+            self.bg.discard(task)
+            if not task.cancelled() and task.exception() is not None:
+                e = task.exception()
+                log.error("tarea de la llamada falló: %r", e, exc_info=e)
+                asyncio.ensure_future(self.emit("log", msg=f"ERROR en {coro.__qualname__}: {e!r}"[:300]))
+        t.add_done_callback(done)
         return t
 
     @property
     def agent_speaking(self) -> bool:
         return time.time() < self.speaking_until
+
+    def is_echo(self, text: str) -> bool:
+        if not self.agent_speaking or not self.agent_text or len(text) < 6:
+            return False
+        a, b = _k(self.agent_text), _k(text)
+        return b in a or difflib.SequenceMatcher(None, a[: len(b) + 20], b).ratio() > 0.6
+
+    @staticmethod
+    def contained(a: str, b: str) -> bool:
+        fa, fb = _k(a), _k(b)
+        return bool(fa) and (fa in fb or difflib.SequenceMatcher(None, fa, fb[-len(fa) - 10:]).ratio() > 0.8)
+
+    # ------------------------------------------------------------ bucle principal
+
+    async def run(self):
+        while True:
+            msg = await self.ws.receive()
+            if msg["type"] == "websocket.disconnect":
+                return
+            if msg.get("bytes") is not None:
+                try:
+                    await self.on_audio(msg["bytes"])
+                except Exception as e:  # noqa: BLE001
+                    log.exception("audio: %s", e)
+                    await self.emit("log", msg=f"error en el audio: {e}")
+            elif msg.get("text"):
+                m = json.loads(msg["text"])
+                t = m.get("type")
+                if t == "start":
+                    await self.start(m.get("lang", "auto"), m.get("tts", True))
+                elif t == "text" and self.call:
+                    await self.on_typed(m.get("text", ""))
+                elif t == "hangup":
+                    await self.finalize("hangup")
+                elif t == "tts":
+                    self.tts = bool(m.get("on"))
+
+    async def start(self, lang: str, tts: bool):
+        self.tts = tts
+        fixed = lang if lang in nlg.LANGS else None
+        self.call = Call(lang=fixed)
+        await self.emit("call_started", call_id=self.call.s.call_id, lang=lang)
+        # Sin idioma fijado: una sesión sin pista y otra con pista gallega (sin pista, el gallego puede salir
+        # traducido al español). Con idioma fijado: dos sesiones con la misma pista, por redundancia.
+        langs = [[nlg.STT_CODES[fixed]]] * 2 if fixed else [[], ["gl-ES"]]
+        self.ears = Ears(self.on_interim, self.on_final, langs)
+        try:
+            await self.ears.start()
+        except Exception as e:  # noqa: BLE001
+            await self.emit("log", msg=f"sin transcripción de voz ({e}): solo texto")
+            self.ears = None
+        await self.speak_outs(self.call.opening())
+        await self.emit("state", state=self.call.snapshot())
+
+    async def close(self):
+        await self.finalize("disconnect")
+        if self.ears:
+            await self.ears.close()
+        for t in list(self.bg):
+            t.cancel()
+
+    # ------------------------------------------------------------ audio entrante
+
+    async def on_audio(self, pcm: bytes):
+        """Un turno = UNA intervención del transcriptor, con los silencios incluidos. Las pausas a mitad de frase
+        no la cortan (cortar en cada pausa hacía que el transcriptor perdiera o duplicara texto). El turno se
+        cierra en close_turn_when_ready: silencio + texto estable + Jev dice que la frase está terminada."""
+        if not self.ears or self.finalized:
+            return
+        events = self.vad.feed(pcm)
+        started = False
+        for kind, _ in events:
+            if kind == "start":
+                if self.turn_t0 is None:
+                    self.turn_t0 = time.time()
+                if self.respond_timer:
+                    self.respond_timer.cancel()
+                    self.respond_timer = None
+                if self.close_task and not self.close_task.done():
+                    self.close_task.cancel()
+                self.act_start_t = time.time()
+                if not self.turn_open:
+                    self.turn_open, started = True, True
+                    act = await self.ears.activity_start(b"".join(self.ring))
+                    if self.first_act is None:
+                        self.first_act = act
+                await self.emit("vad", state="speech", agent_speaking=self.agent_speaking)
+            elif kind == "end":
+                self.t_speech_end = time.perf_counter()
+                await self.emit("vad", state="silence")
+                if self.turn_open:
+                    self.close_task = self.spawn(self.close_turn_when_ready(self.ears.act))
+        if self.turn_open and not started:
+            await self.ears.push(pcm)
+        self.ring = (self.ring + [pcm])[-20:]
+
+    async def close_turn_when_ready(self, act: int):
+        t_end = time.perf_counter()
+        while True:
+            await asyncio.sleep(0.05)
+            if self.vad.speaking or not self.turn_open or (self.ears and self.ears.act != act):
+                return
+            silence = time.perf_counter() - t_end
+            stable = time.perf_counter() - self.interim_t
+            full = " ".join(self.segments + [self.interim]).strip()
+            p = self.spec.get(_k(full)) if full else None
+            fin = p.finished if p is not None else None
+            if (silence >= 1.3
+                    or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
+                    or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
+                self.turn_open = False
+                await self.ears.activity_end()
+                self.spawn(self.watchdog(act))
+                await self.emit("log", msg=f"turno cerrado: silencio {silence:.2f} s, texto estable {stable:.2f} s, terminada {fin}")
+                return
 
     def is_echo(self, text: str) -> bool:
         if not self.agent_speaking or not self.agent_text or len(text) < 6:
@@ -297,6 +423,8 @@ class VoiceCall:
         # deshacer solo con palabras de verdad (no con ruido) de una intervención empezada tras la respuesta
         if self.undo and self.act_start_t > self.undo[2]:
             await self.maybe_undo()
+        if text != self.interim:
+            self.interim_t = time.perf_counter()
         self.interim = text
         full = " ".join(self.segments + [text]).strip()
         await self.emit("partial", text=full)
@@ -321,7 +449,10 @@ class VoiceCall:
             return
         if self.segments and self.contained(text, self.segments[-1]):
             return
-        self.segments.append(text.strip())
+        if self.segments and _k(self.segments[-1]) and _k(self.segments[-1]) in _k(text):
+            self.segments[-1] = text.strip()      # el definitivo ya incluye lo anterior: se sustituye
+        else:
+            self.segments.append(text.strip())
         self.interim = ""
         full = " ".join(self.segments).strip()
         await self.emit("final", text=full, stt_ms=lag_ms, session=tag)
@@ -329,7 +460,7 @@ class VoiceCall:
 
     async def watchdog(self, act: int):
         await asyncio.sleep(self.WATCHDOG_S)
-        if not self.ears or act in self.ears.texts or self.vad.speaking or not self.interim or act != self.ears.act:
+        if not self.ears or act in self.ears.texts or self.turn_open or not self.interim or act != self.ears.act:
             return
         await self.emit("log", msg=f"ninguna sesión devolvió el definitivo en {self.WATCHDOG_S:.0f} s: se usa el último parcial")
         await self.on_final("vigilante", self.interim, None, act)

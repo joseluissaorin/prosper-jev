@@ -71,7 +71,7 @@ PLANS = {
     "mapfre": {"name": "Mapfre", "no_spec": [], "no_site": [], "referral_for": ["dermatology"]},
     "caser": {"name": "Caser", "no_spec": [], "no_site": [], "cap": 3},
     "cigna": {"name": "Cigna", "no_spec": ["physiotherapy"], "no_site": []},
-    "axa": {"name": "AXA", "no_spec": [], "no_site": ["norte"]},
+    "axa": {"name": "AXA", "no_spec": [], "no_site": ["sur"]},
     "nueva_mutua": {"name": "Nueva Mutua", "no_spec": ["dermatology"], "no_site": []},
     "privado": {"name": "Privado", "no_spec": [], "no_site": []},
 }

@@ -81,14 +81,9 @@ async def prosper_vocabulary():
         cat = await API.clinic()
     except Exception:  # noqa: BLE001
         return
-    words = set()
-    for p in cat["providers"]:
-        words |= {w for w in p["name"].replace(".", " ").split() if len(w) > 2 and w not in ("Dra", "Dr")}
-    for l in cat["locations"]:
-        words.add(l["name"])
-    for x in cat["plans"]:
-        words.add(x["name"])
-    words |= {"DNI", "NIE", "Arenal", "gynaecology", "orthopaedics", "paediatrics", "physiotherapy", "dermatology"}
+    # Solo sedes y especialidades: los nombres de médicos y aseguradoras sesgaban los nombres de pacientes
+    # («Pau Vidal Serra» → «Pablo Vilar Sáenz») y las letras del DNI («S» → «ASISA»).
+    words = {l["name"] for l in cat["locations"]} | {"Arenal", "gynaecology", "orthopaedics", "paediatrics", "physiotherapy", "dermatology"}
     voice.VOCAB[:] = sorted(words)
 
 

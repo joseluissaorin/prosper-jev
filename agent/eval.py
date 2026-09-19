@@ -189,7 +189,7 @@ def build_cases():
     # 6 · reglas
     case("p6_adeslas_gine", "p6", "María García López, born 12 March 1984", "You only have Adeslas insurance.", "Book the earliest gynaecology appointment.",
          no_action("specialty_not_covered"))
-    case("p6_axa_norte", "p6", "Laura Ruiz Gómez", "Born 14 September 1978. You only have AXA.", "Book a GP appointment at Arenal Norte only (you can't go anywhere else).",
+    case("p6_axa_sur", "p6", "Laura Ruiz Gómez", "Born 14 September 1978. You only have AXA.", "Book a GP appointment at Arenal Sur only (you can't go anywhere else).",
          no_action("location_not_covered"))
     case("p6_dkv_iglesias", "p6", "Carmen López Díaz, 65", f"Born 1 December 1960; DNI {spoken('39345092')} G. Only DKV.", "Book dermatology with Dra. Iglesias; if she can't see you, accept the earliest other dermatologist.",
          book("P00013", earliest("dermatology", patient="P00013", provider="PR07"), "dkv"))

@@ -255,6 +255,64 @@ class Vad:
                         ev.append(("end", None))
         return ev
 
+class SileroVad:
+    """Detector de voz neuronal (Silero VAD, ONNX): distingue la voz del ruido de fondo, cosa que la energía
+    no hace a 5 dB de relación señal/ruido. Misma interfaz que Vad: feed() → ('start', preroll) | ('end', None)."""
+    MODEL = Path(os.environ.get("SILERO_VAD", str(Path.home() / ".cache/silero/silero_vad.onnx")))
+    _sess = None
+
+    def __init__(self, end_ms: int = 250, on_p: float = 0.5, off_p: float = 0.35):
+        import onnxruntime as ort
+        if SileroVad._sess is None:
+            so = ort.SessionOptions()
+            so.intra_op_num_threads, so.inter_op_num_threads = 1, 1
+            SileroVad._sess = ort.InferenceSession(str(self.MODEL), sess_options=so, providers=["CPUExecutionProvider"])
+        self.state = np.zeros((2, 1, 128), dtype=np.float32)
+        self.ctx = np.zeros(64, dtype=np.float32)
+        self.buf = np.zeros(0, dtype=np.float32)
+        self.speaking = False
+        self.on_run = 0
+        self.silence_ms = 0
+        self.end_ms, self.on_p, self.off_p = end_ms, on_p, off_p
+        self.last_p = 0.0
+
+    def _prob(self, chunk: np.ndarray) -> float:
+        x = np.concatenate([self.ctx, chunk])[None, :].astype(np.float32)
+        out, self.state = SileroVad._sess.run(None, {"input": x, "state": self.state, "sr": np.array(16000, dtype=np.int64)})
+        self.ctx = chunk[-64:]
+        return float(out[0][0])
+
+    def feed(self, pcm: bytes):
+        self.buf = np.concatenate([self.buf, np.frombuffer(pcm, dtype=np.int16).astype(np.float32) / 32768.0])
+        ev = []
+        while len(self.buf) >= 512:
+            chunk, self.buf = self.buf[:512], self.buf[512:]
+            p = self._prob(chunk)
+            self.last_p = p
+            if not self.speaking:
+                self.on_run = self.on_run + 1 if p >= self.on_p else 0
+                if self.on_run >= 2:
+                    self.speaking, self.silence_ms = True, 0
+                    ev.append(("start", b""))
+            else:
+                if p < self.off_p:
+                    self.silence_ms += 32
+                    if self.silence_ms >= self.end_ms:
+                        self.speaking, self.on_run = False, 0
+                        ev.append(("end", None))
+                else:
+                    self.silence_ms = 0
+        return ev
+
+
+def make_vad():
+    try:
+        return SileroVad()
+    except Exception as e:  # noqa: BLE001
+        log.warning("Silero VAD no disponible (%s): detector por energía", e)
+        return Vad()
+
+
 # ================================================================ boca
 
 SYS_TTS = ("You are the voice of a clinic receptionist. Read aloud EXACTLY the text you receive, word for word, in its own "
