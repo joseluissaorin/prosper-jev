@@ -164,6 +164,19 @@ async def una(ws_url: str, guion: str, linea: str | None, wav: str | None) -> li
             await c.decir(texto, lang)
         await ws.send(json.dumps({"event": "stop", "streamSid": call_id}))
         rx.cancel()
+        # la cifra buena es la del propio agente: él sabe cuándo dejó de oír voz (su detector), no nosotros
+        await asyncio.sleep(1.0)
+        base = ws_url.replace("wss://", "https://").replace("ws://", "http://").rsplit("/ws", 1)[0]
+        try:
+            async with httpx.AsyncClient(timeout=20) as cli:
+                ev = (await cli.get(f"{base}/api/events/{call_id}")).json().get("events", [])
+            suyo = [e["ms"] for e in ev if e.get("type") == "latency" and "primera palabra" in str(e.get("stage"))]
+            cierre = [e["ms"] for e in ev if e.get("type") == "latency" and "turno cerrado" in str(e.get("stage"))]
+            if suyo:
+                print(f"   (agente) primera palabra {suyo} · cierre de turno {cierre}")
+                c.turnos = [float(x) for x in suyo]
+        except Exception as e:  # noqa: BLE001
+            print(f"   (no se pudieron leer los tiempos del agente: {e})")
         dur = time.perf_counter() - t0
         if wav:
             with wave.open(wav, "wb") as w:
