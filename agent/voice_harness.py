@@ -298,8 +298,14 @@ class Call:
         self.agent_lat_detail: list[dict] = []
         self.voice_ev: list[dict] = []
 
+    # cuando ofrecen dos horas y el guion no dice cuál, se pide la primera: es lo que hace cualquiera, y si no
+    # el agente reserva la última que oyó y el caso se cuenta como fallo del agente sin serlo
+    LA_PRIMERA = {"en": "The first one, please.", "es": "La primera, por favor.", "ca": "La primera, si us plau."}
+
     def line(self, key: str) -> str | None:
         v = self.c["lines"].get(key)
+        if v is None and key == "which":
+            return self.LA_PRIMERA.get(self.c.get("lang", "en"), self.LA_PRIMERA["en"])
         if v is None:
             return None
         if isinstance(v, list):
