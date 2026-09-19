@@ -416,12 +416,15 @@ class VoiceCall:
                 # Si la respuesta a ESTE texto ya está planificada y su voz ya está hecha, y no escribe en la
                 # agenda, el turno no espera al veredicto de Jev: no queda nada que decidir. Es el caso normal
                 # cuando el cerebro especula en cada parcial, y ahí el techo lo ponía el reloj, no el sentido.
-                listo = not cuelga and stable >= 0.2 and silence >= 0.1 and self.plan_listo(full)
+                # 0,1 s de silencio es una respiración a mitad de frase, no el final del turno: con esos umbrales
+                # la ronda 15 cayó de 41 a 35 aciertos de 50. Con 0,25 s de silencio y el texto quieto 0,3 s se
+                # mantiene casi toda la ganancia y ya no se corta a nadie a media frase.
+                listo = not cuelga and stable >= 0.3 and silence >= 0.25 and self.plan_listo(full)
                 # El oído pone el punto justo cuando da la frase por cerrada, y eso llega ~300 ms antes que el
                 # juicio de Jev. Si el parcial termina en punto (o en interrogación o exclamación) y lleva quieto
                 # un momento, el turno se cierra con esa señal: es determinista y no cuesta nada. Lo que venga
                 # después, si quien llama seguía hablando, lo recoge deshacer y unir.
-                puntuado = not cuelga and stable >= 0.12 and silence >= 0.10 and PUNTO_FINAL.search(full)
+                puntuado = not cuelga and stable >= 0.18 and silence >= 0.15 and PUNTO_FINAL.search(full)
                 if (listo
                         or puntuado
                         or silence >= (1.8 if cuelga else 1.3)
