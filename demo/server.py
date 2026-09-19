@@ -731,6 +731,22 @@ class VoiceCall:
         self.answered_text = ""
         self.call._log("undo", text=text)
         await self.emit("state", state=self.call.snapshot())
+        self.spawn(self.undo_rescate(text))
+
+    UNDO_RESCATE_S = 1.3
+
+    async def undo_rescate(self, text: str):
+        """Deshacer supone que quien llama sigue hablando y que enseguida llegará el texto completo. Si no llega
+        nada —el oído abrió una actividad nueva que se quedó en nada, o era solo un ruido— la llamada se queda en
+        silencio para siempre y quien llama acaba colgando. Pasado poco más de un segundo, se vuelve a contestar
+        a lo mismo que se había deshecho."""
+        await asyncio.sleep(self.UNDO_RESCATE_S)
+        if self.finalized or not self.call or self.call.s.ended or self.undo:
+            return
+        if self.answered_text or self.agent_speaking or self.turn_open or self.interim or self.segments != [text]:
+            return
+        await self.emit("log", msg="tras deshacer no llegó nada nuevo: se vuelve a contestar")
+        await self.endpoint(text, typed=False)
 
     # ------------------------------------------------------------ fin de turno y respuesta
 
