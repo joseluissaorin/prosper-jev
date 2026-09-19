@@ -272,6 +272,7 @@ class Call:
         self.utts = 0
         self.gapped: list[list[int]] = []
         self.agent_lat: list[int] = []
+        self.agent_lat_detail: list[dict] = []
         self.voice_ev: list[dict] = []
 
     def line(self, key: str) -> str | None:
@@ -375,6 +376,7 @@ class Call:
                 self.agent_texts.append((time.time(), e["text"]))
             elif e.get("type") == "latency" and e.get("stage", "").startswith("fin de voz"):
                 self.agent_lat.append(e["ms"])
+                self.agent_lat_detail.append({k: e.get(k) for k in ("ms", "boca_ms", "cached", "source")})
             elif e.get("type") == "voice":
                 self.voice_ev.append({k: e.get(k) for k in ("source", "first_ms", "gaps")})
 
@@ -467,7 +469,7 @@ class Call:
         return {"id": c["id"], "problem": c["problem"], "ok": ok, "why": why, "acts": acts, "sid": self.sid,
                 "lat": [round(x) for x in self.lat], "said": self.said, "agent": [t for _, t in self.agent_texts],
                 "secs": round(time.time() - t_call, 1), "agent_audio_s": round(self.agent_audio_s, 1), "noise": c.get("noise"),
-                "agent_lat": self.agent_lat, "utts": self.utts, "gapped": self.gapped, "voice": self.voice_ev}
+                "agent_lat": self.agent_lat, "agent_lat_detail": self.agent_lat_detail, "utts": self.utts, "gapped": self.gapped, "voice": self.voice_ev}
 
     async def wait_first_words(self, since: float, limit: float) -> str | None:
         t0 = time.time()
@@ -529,6 +531,15 @@ async def main():
     if A:
         print(f"Según el agente (fin de voz → primera palabra): mediana {statistics.median(A):.0f} ms · p90 {A[int(0.9 * (len(A) - 1))]:.0f} · "
               f"máx {A[-1]:.0f} ms · {len(A)} turnos")
+        D = [d for r in results for d in r.get("agent_lat_detail", [])]
+        for name, sel in (("con la voz en caché", [d["ms"] for d in D if d.get("cached")]),
+                          ("sintetizando", [d["ms"] for d in D if not d.get("cached")])):
+            if sel:
+                sel.sort()
+                print(f"   {name}: mediana {statistics.median(sel):.0f} ms · p90 {sel[int(0.9 * (len(sel) - 1))]:.0f} ms · {len(sel)} turnos")
+        B = sorted(d["boca_ms"] for d in D if not d.get("cached") and d.get("boca_ms") is not None)
+        if B:
+            print(f"   de ellos, la boca hasta su primer audio: mediana {statistics.median(B):.0f} ms · p90 {B[int(0.9 * (len(B) - 1))]:.0f} ms")
     utts = sum(r.get("utts", 0) for r in results)
     gapped = [g for r in results for g in r.get("gapped", [])]
     vs = [v for r in results for v in r.get("voice", [])]

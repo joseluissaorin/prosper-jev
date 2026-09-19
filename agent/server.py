@@ -288,7 +288,8 @@ class TwilioCall(demo.VoiceCall):
             if first:
                 first = False
                 if self.t_speech_end:
-                    await self.emit("latency", stage="fin de voz → primera palabra", ms=round((time.perf_counter() - self.t_speech_end) * 1000))
+                    await self.emit("latency", stage="fin de voz → primera palabra", ms=round((time.perf_counter() - self.t_speech_end) * 1000),
+                                    boca_ms=r.first_ms, cached=r.cached, source=r.source)
                     self.t_speech_end = None
             # la boca de ElevenLabs ya da µ-law de 8 kHz; la de Gemini (o su respaldo), PCM de 24 kHz
             buf += chunk if r.fmt == "ulaw8" else ulaw.pcm16_to_ulaw(ulaw.down_24k_to_8k(chunk))
