@@ -244,6 +244,51 @@ def name_score(text: str, full_name: str) -> float:
     return hit / len(nw)
 
 
+def _sonido(w: str) -> str:
+    """Esqueleto sonoro de una palabra: sin vocales repetidas ni letras mudas, para comparar oídos distintos."""
+    w = fold(w)
+    w = re.sub(r"h", "", w)
+    w = re.sub(r"(ph|f)", "f", w)
+    w = re.sub(r"(k|q|c(?![ei]))", "k", w)
+    w = re.sub(r"c[ei]", "s", w)
+    w = re.sub(r"z", "s", w)
+    w = re.sub(r"(v|b)", "b", w)
+    w = re.sub(r"(y|j|ll)", "i", w)
+    w = re.sub(r"(.)\1+", r"\1", w)
+    return w
+
+
+def sounds_match(said: str, name: str) -> float:
+    """Parecido de sonido entre lo que se oyó y un nombre conocido (aseguradora, especialidad, sede).
+    «Sunita» → Sanitas 0,73; «a de eslas» → Adeslas. Sirve para no preguntar tres veces lo mismo."""
+    import difflib
+    a, b = _sonido(said), _sonido(name)
+    if not a or not b:
+        return 0.0
+    r = difflib.SequenceMatcher(None, a, b).ratio()
+    if a.startswith(b[:3]) or b.startswith(a[:3]):
+        r = max(r, 0.6 + 0.4 * r)
+    return r
+
+
+def best_match(said: str, options: dict[str, str], floor: float = 0.62) -> tuple[str | None, float]:
+    """La opción que mejor suena como lo dicho, comparando también palabra a palabra («tengo Sunita» → sanitas).
+    Devuelve (id, parecido) o (None, 0.0) si ninguna llega al suelo o hay empate técnico entre dos."""
+    palabras = [w for w in re.findall(r"[a-z]+", fold(said)) if len(w) > 2]
+    puntos = []
+    for k, v in options.items():
+        s = sounds_match(said, v)
+        for w in palabras:
+            s = max(s, sounds_match(w, v))
+        puntos.append((s, k))
+    puntos.sort(reverse=True)
+    if not puntos or puntos[0][0] < floor:
+        return None, 0.0
+    if len(puntos) > 1 and puntos[0][0] - puntos[1][0] < 0.06:
+        return None, 0.0                # dos suenan igual de bien: que lo pregunte, no que lo invente
+    return puntos[1 - 1][1], round(puntos[0][0], 2)
+
+
 if __name__ == "__main__":
     casos_dob = {
         "Laura Ruiz Gomez born the 14th of September 1978.": "1978-09-14",
@@ -282,6 +327,12 @@ if __name__ == "__main__":
         ok += got == want
         print(("✅" if got == want else "❌"), repr(t), "→", got)
     print(name_score("Mario Garcia Lopez. My DNI is 39958838.", "Mario García López"), name_score("It's Marta Ruiz Navarro.", "Marta Serra Puig"))
+    PLANES = {"sanitas": "Sanitas", "adeslas": "Adeslas", "dkv": "DKV", "axa": "AXA", "caser": "Caser", "asisa": "Asisa", "mapfre": "Mapfre"}
+    for t, want in {"Sunita": "sanitas", "a de eslas": "adeslas", "Map free": "mapfre", "Assisa": "asisa",
+                    "I have no insurance": None, "Mutua Madrileña": None}.items():
+        got = best_match(t, PLANES)[0]
+        ok += got == want
+        print(("✅" if got == want else "❌"), repr(t), "→", got)
     hoy = date(2026, 9, 19)
     for t, want in {"first thing on Monday the 12th of October": "2026-10-12", "el 3 de octubre por la tarde": "2026-10-03",
                     "October 2nd please": "2026-10-02", "on the 12th": None, "born 3rd of May 1944": None}.items():

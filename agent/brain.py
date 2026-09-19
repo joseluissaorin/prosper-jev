@@ -137,6 +137,8 @@ def spoken_id(text: str) -> str | None:
     need = 7 if first_letter else 8
     if len(digits) < need:
         return None
+    if len(digits) > need and not letters and not first_letter:
+        return None                     # más cifras de la cuenta y sin letra: es un teléfono, no un DNI recortado
     digits = digits[-need:]
     return (first_letter or "") + digits + (letters[-1] if letters else "")
 

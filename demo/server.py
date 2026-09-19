@@ -46,6 +46,11 @@ CALLS = HERE / "calls"
 CALLS.mkdir(exist_ok=True)
 
 
+# una lectura de cifras a medias: acaba en cifra, en guion de corte del transcriptor o en una letra suelta
+COLGANDO = re.compile(r"(?:\d|[-–—]|\b[a-zA-Z])\s*[.,]?\s*$")
+
+
+
 @asynccontextmanager
 async def lifespan(app):
     await asyncio.gather(JEV.warm(), MOUTH.warm(), return_exceptions=True)
@@ -394,11 +399,17 @@ class VoiceCall:
                 # Con el oído de ElevenLabs (Scribe) los parciales llegan cortados, así que Jev ve la frase a
                 # medias («terminada 0,07») aunque quien llama haya acabado: sin esta regla el turno esperaba al
                 # tope de 1,3 s. Si el texto lleva casi un segundo sin moverse y hay medio de silencio, terminó.
-                if (silence >= 1.3
+                # Pero una lectura a medias NO se corta: quien deletrea un DNI o dicta un teléfono hace pausas de
+                # medio segundo entre grupos de cifras, y el parcial se queda quieto mientras calla. Cortarle ahí
+                # produce «It's an NIE 1234-» y la recepción vuelve a preguntar lo mismo tres veces. Si el texto
+                # acaba en cifra, en guion o en una letra suelta y Jev no ve la frase terminada, se le da más aire.
+                cuelga = bool(COLGANDO.search(full)) and (fin is None or fin < 0.7)
+                if (silence >= (1.8 if cuelga else 1.3)
                         or (silence >= 0.05 and stable >= 0.15 and fin is not None and fin >= 0.92)
                         or (silence >= 0.3 and stable >= 0.3 and fin is not None and fin >= 0.8)
-                        or (silence >= 0.5 and stable >= 0.8)
-                        or (silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))):
+                        or (not cuelga and silence >= 0.5 and stable >= 0.8)
+                        or (not cuelga and silence >= 0.7 and stable >= 0.5 and (fin is None or fin >= 0.4))
+                        or (cuelga and silence >= 1.0 and stable >= 1.0)):
                     why = f"silencio {silence:.2f} s"
             # voz de fondo: el detector lleva ≥3 s oyendo voz SIN una sola pausa (una persona hace pausas; una tele no)
             # y el texto no cambia. Con menos, es el retraso del transcriptor en una frase normal.
