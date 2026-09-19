@@ -229,6 +229,8 @@ class St:
     provider: str | None = None
     provider_opts: list = field(default_factory=list)
     site: str | None = None
+    site_unsure: str | None = None          # suena a una sede, pero no está claro: se pregunta
+    rejected: list = field(default_factory=list)   # (profesional, hora) ya rechazados: no se repiten
     day: str | None = None            # ISO
     day_kind: str | None = None
     part: str | None = None           # morning | afternoon | first_thing
@@ -442,6 +444,7 @@ class Brain:
         s = self.s
         if p.ex_task is not None and not p.ex and not getattr(self, "_dry", False):
             p.ex, p.ms_ex = await p.ex_task
+        self.so_used = False
         pre = [] if getattr(self, "_dry", False) else await self.check_digits(text, p)
         s.history.append(f"Caller: {text}")
         out = [self._log("perception", text=text, ms=p.ms, ms_ex=p.ms_ex,
@@ -581,8 +584,18 @@ class Brain:
             s.provider = "unknown"
             s.ev["provider_said"] = said
         st, stc = p.c("site")
-        if st and st != "none" and stc >= 0.6:
-            s.site = st
+        probs = {k: v for k, v in ((p.raw.get("site") or {}).get("probabilities") or {}).items() if k != "none"}
+        best = max(probs.items(), key=lambda kv: kv[1], default=(None, 0.0))
+        if s.pending == "which_site" and best[0] and best[1] >= 0.35:
+            s.site, s.site_unsure = best[0], None       # contestando a «¿qué sede?»: la más probable
+        elif st and st != "none" and stc >= 0.6:
+            s.site, s.site_unsure = st, None
+        elif best[0] and best[1] >= 0.3 and best[0] != s.site:
+            # suena a una sede pero no está claro («R&L SORE», «it has to be sir»): se preguntará
+            s.site_unsure = best[0]
+            out.append(self._log("site_unsure", candidate=best[0], p=round(best[1], 2)))
+        if s.pending == "which_site" and not s.site:
+            s.site_unsure = None                         # «me da igual»: sin sede
         if p.n("gives_address") >= 0.6 and ex.get("address"):
             s.address = ex["address"]
         dk, dc = p.c("date_kind")
@@ -634,6 +647,8 @@ class Brain:
                 out += await self.commit_offer()
                 self._stop = True
             elif act in ("reject", "correct") or p.c("date_kind")[0] not in (None, "none") or p.c("part")[0] not in (None, "any"):
+                sl = s.offer["slot"]
+                s.rejected = getattr(s, "rejected", []) + [(sl["provider_id"], sl["start_time"])]
                 s.offer = None
                 out.append(self._log("offer_rejected", act=act))
         elif s.pending == "confirm_cancel" and s.target:
@@ -861,6 +876,12 @@ class Brain:
 
     async def search(self, exclude_appt: str | None = None) -> list[dict]:
         s = self.s
+        if getattr(s, "site_unsure", None) and s.pending != "which_site":
+            s.pending = "which_site"
+            names = [l["name"] for l in (await self.cat())["locations"]]
+            lst = ", ".join(names[:-1]) + (" or " if s.lang == "en" else " o ") + names[-1] if len(names) > 1 else names[0]
+            return [self._text({"en": f"Which of our sites would suit you: {lst}?", "es": f"¿Qué sede le va mejor: {lst}?",
+                                "ca": f"Quina seu li va millor: {lst}?"}.get(s.lang, f"Which of our sites would suit you: {lst}?"), "which_site")]
         tomorrow = s.t0.date() + timedelta(days=1)
         cal = (await self.cat())["calendar"]
         last = date.fromisoformat(cal["ends"])
@@ -938,10 +959,13 @@ class Brain:
     def filter_slots(self, slots: list[dict], first: date) -> list[dict]:
         s = self.s
         out = []
+        rejected = set(getattr(s, "rejected", []))
         for x in slots:
             dt = parse_slot(x["start_time"])
             if dt.date() < first or dt.date() <= s.t0.date():
                 continue
+            if (x["provider_id"], x["start_time"]) in rejected:
+                continue                                  # lo ya rechazado no se vuelve a ofrecer
             if s.part in ("morning", "first_thing") and dt.hour >= 14:
                 continue
             if s.part == "afternoon" and dt.hour < 14:
@@ -1119,6 +1143,7 @@ class Brain:
         return [self._log("second_opinion", field=kind, text=alt, ms=ms, used=True)]
 
     async def second_opinion(self) -> tuple[str | None, int]:
+        self.so_used = True
         audio = getattr(self, "audio", b"")
         if len(audio) < 16000 * 2 * 0.3:
             return None, 0

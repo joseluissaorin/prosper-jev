@@ -175,6 +175,7 @@ def level_speech(x: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------- qué contesta quien llama
 
 RULES = [
+    (r"which of our sites|qué sede|quina seu", "site"),
     (r"one one two|\b112\b|uno uno dos|u u dos|emergency department|urgencias", "bye"),
     (r"thank you for calling|gracias por llamar|gràcies per trucar", "END"),
     (r"register you|dar de alta|doni d.alta|dono d.alta|dé de alta", "register"),
@@ -199,7 +200,7 @@ RULES = [
 ]
 FALLBACK = {"given": "id", "surnames": "id", "dni": "id", "dob": "id", "phone": "id", "email": "bye", "insurer": "other_plan",
             "which": "yes", "specialty": "open", "when": "yes", "register": "no", "other_plan": "no", "yes": "bye", "no": "bye", "id": "open",
-            "need": "open"}
+            "need": "open", "site": "yes"}
 
 
 def readback_ok(agent_text: str, exp: dict) -> bool:
@@ -465,6 +466,13 @@ async def main():
     missing = [t for t in all_lines(cs) if not _key(*t).exists()]
     if missing:
         print(f"Faltan {len(missing)} frases por grabar: ejecuta --prep")
+        return
+    health = AGENT.replace("ws://", "http://").replace("wss://", "https://").rsplit("/", 1)[0] + "/health"
+    try:
+        async with httpx.AsyncClient() as h:
+            (await h.get(health, timeout=5)).raise_for_status()
+    except Exception as e:  # noqa: BLE001
+        print(f"El agente no responde en {health} ({e!r}): no se lanza nada")
         return
     par = int(os.environ.get("PAR", "10"))
     sem = asyncio.Semaphore(par)

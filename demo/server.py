@@ -637,6 +637,22 @@ class VoiceCall:
                 await self.emit("log", msg=f"ERROR en la política ({e!r})"[:300])
                 self.call.s = before
                 outs = [{"kind": "say", "text": nlg.say("ask_repeat", getattr(self.call.s, "lang", None) or "en"), "act": "ask_repeat"}]
+            # Antes de pedir que repita, se vuelve a transcribir el audio del turno (Flash-Lite): si sale otra cosa,
+            # el turno se procesa con eso. Solo en los caminos de «no le he entendido»; ahorra una vuelta entera.
+            if not typed and self.reasks(outs, before) and hasattr(self.call, "second_opinion") and not getattr(self.call, "so_used", True):
+                alt, ms = await self.call.second_opinion()
+                if alt and _k(alt) != _k(full):
+                    await self.emit("log", msg=f"segunda opinión ({ms} ms): «{alt}» en vez de «{full}»")
+                    self.call.s = before
+                    p2 = await self.perceive(alt)
+                    await self.emit("perception", phase="segunda opinión", text=alt, ms=p2.ms, hedged=p2.hedged, j=_compact(p2))
+                    try:
+                        outs = await self.call.handle(alt, p2)
+                        full = alt
+                    except Exception as e:  # noqa: BLE001
+                        log.exception("la política falló con la segunda opinión: %s", e)
+                        self.call.s = before
+                        outs = [{"kind": "say", "text": nlg.say("ask_repeat", getattr(self.call.s, "lang", None) or "en"), "act": "ask_repeat"}]
             if self.undo_requested and not typed:
                 self.call.s = before
                 self.segments, self.answered_text, self.undo_requested = [full], "", False
@@ -655,6 +671,15 @@ class VoiceCall:
                 self.speak_task.cancel()
                 await self.emit("stop_audio", reason="nueva respuesta")
             self.speak_task = self.spawn(self.speak_outs(outs))
+
+    REASK = {"ask_second_id", "repeat_id", "repeat", "id_letter_bad", "reg_phone_groups", "ask_repeat"}
+
+    def reasks(self, outs: list[dict], before) -> bool:
+        """¿La respuesta es volver a pedir lo mismo (no se entendió o no validó)?"""
+        acts = {o.get("act") for o in outs if o.get("kind") == "say"}
+        same_q = bool(getattr(before, "pending", None)) and getattr(before, "pending", "") == getattr(self.call.s, "pending", "") \
+            and str(before.pending).startswith("reg_") and f"{before.pending}" in acts
+        return bool(acts & self.REASK) or same_q
 
     # ------------------------------------------------------------ voz del agente
 

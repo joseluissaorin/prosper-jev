@@ -104,7 +104,7 @@ def build() -> list[dict]:
     c("p5_manana_domingo", "p5", "Leda", {**marta, "open": "Hi, can I see a GP tomorrow?", "yes": "Oh, closed tomorrow? Then yes, the next day is fine."},
       E.book("P00001", E.earliest("general_practice", patient="P00001", day=T + timedelta(days=1), next_open=True), "sanitas"), frm="+34612345678")
     c("p5_viernes_tarde_sur", "p5", "Charon", {**mario, "open": "Hello, I'd like a GP appointment Friday afternoon at Arenal Sur.",
-                                               "yes": "Ah, closed then? Okay, the next afternoon at Sur is fine, yes."},
+                                               "yes": "Ah, closed then? Okay, the next afternoon at Sur is fine, yes.", "site": "Arenal Sur, please. The south one."},
       E.book("P00005", E.earliest("general_practice", site="sur", patient="P00005", day=fri, part="afternoon", next_open=True), "sanitas"))
     c("p5_12_octubre", "p5", "Leda", {**laura, "open": "Hi, first thing on Monday the twelfth of October, a GP at Arenal Centro please.",
                                       "yes": "Oh, a holiday? Then the next day, first thing, is fine."},
@@ -121,7 +121,7 @@ def build() -> list[dict]:
                                            "dob": "Twelfth of March, eighty-four.", "other_plan": "No, only Adeslas.", "yes": "Okay.", "bye": "Oh well. Thank you, bye."},
       E.no_action("specialty_not_covered"))
     c("p6_axa_sur", "p6", "Leda", {**laura, "open": "Hi, I need a GP at Arenal Sur. I can only get to Sur.", "other_plan": "No, just AXA.",
-                                   "yes": "No, it has to be Sur.", "bye": "Alright, thanks anyway. Bye."},
+                                   "yes": "No, it has to be Sur.", "bye": "Alright, thanks anyway. Bye.", "site": "Arenal Sur. The south one."},
       E.no_action("location_not_covered"))
     c("p6_dkv_iglesias", "p6", "Despina", {"open": "Hello, I'd like dermatology with Doctora Iglesias please.", "id": f"Carmen López Díaz. DNI {s('39345092')} G.",
                                             "dni": f"{s('39345092')} G.", "dob": "First of December, nineteen sixty.", "other_plan": "No, only DKV.",
