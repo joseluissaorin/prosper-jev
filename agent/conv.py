@@ -397,6 +397,7 @@ class Conv:
                                 "prescription / blood results is general practice; a child's illness is paediatrics; sprains and joint injuries are "
                                 "orthopaedics; periods or smear test is gynaecology; skin is dermatology; physio)?",
                                 {x["id"]: x["name"] for x in (self.catalog or {}).get("specialties", [])} | {"none": "Not stated or unclear"}),
+            "for_other": noul("Is the appointment for someone other than the caller (their child, parent, grandchild, partner, or someone they care for)?"),
             "names_doctor_or_site": noul("Does the caller ask for a specific doctor by name, a specific clinic site, or the nearest site to an address?"),
             "says_goodbye": noul("Does `caller` say goodbye, thank-you-and-bye, or that they need nothing else?"),
             # el transcriptor destroza los nombres propios por teléfono («Arenal Sur» → «Arenal, sir»): Jev los
@@ -687,6 +688,9 @@ class Conv:
         s = self.s
         if any(s.offers.get(k, {}).get("status") == "open" for k in s.menu) or not s.patients:
             return ""
+        if p.n("for_other") >= 0.4 or re.search(r"\b(for my|para mi|per al meu|per a la meva|my (son|daughter|father|mother|wife|husband|grandson|"
+                                                r"granddaughter)|mi (hijo|hija|padre|madre|marido|mujer|nieto|nieta))\b", fold(p.text)):
+            return ""                       # la cita es para otra persona: que el planificador identifique a quién
         it, ic = p.c("intent")
         sp, sc = p.c("specialty")
         if it != "book" or ic < 0.7 or not sp or sp == "none" or sc < 0.7 or p.n("names_doctor_or_site") >= 0.5:
@@ -1504,6 +1508,7 @@ CLINIC VOCABULARY
         for x in picks:
             policy = next((pl for pl in plans if pl in x.get("payable_with", [])), (x.get("payable_with") or plans)[0])
             oid = next((k for k, o in s.offers.items() if o.get("status") not in ("booked", "moved", "rejected") and o["purpose"] == purpose
+                        and o.get("patient_id") == patient_id      # nunca se reutiliza la oferta de otro paciente
                         and o["slot"]["start_time"] == x["start_time"] and o["slot"]["provider_id"] == x["provider_id"]), None)
             if not oid:
                 oid = f"o{len(s.offers) + 1}"
@@ -1728,7 +1733,11 @@ CLINIC VOCABULARY
         said = fold(" ".join(h[8:] for h in self.s.history if h.startswith("Caller:")))
         toks = [w for w in "".join(c if c.isalnum() else " " for c in fold(address)).split()
                 if len(w) >= 4 and w not in ("calle", "carrer", "street", "avenida", "avinguda", "plaza", "placa", "paseo", "madrid", "espana", "spain")]
-        if not toks or not any(w in said for w in toks):
+        looks_like = bool(re.search(r"\b(calle|c/|carrer|avenida|avinguda|avda|plaza|pla[cç]a|paseo|passeig|ronda|camino|carretera|street|road|avenue|"
+                                    r"square|madrid|getafe|legan[eé]s|alcorc[oó]n|m[oó]stoles|fuenlabrada|parla|pinto|vallecas|chamber[ií]|salamanca|"
+                                    r"arganzuela|tetu[aá]n|usera|caraban|latina|retiro|moncloa|hortaleza|barajas|villaverde|sol|castellana|gran v[ií]a)\b",
+                                    fold(address)) or bool(re.search(r"\d", address or "")))
+        if not looks_like or not toks or not any(w in said for w in toks):
             self._log("address_invented", dropped=address)
             return {"error": "the caller has not given an address and has not asked which site is nearest: do NOT use this tool and do NOT "
                              "ask them for an address. Just call find_slots for the earliest appointment."}
