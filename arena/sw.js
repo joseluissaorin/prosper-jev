@@ -1,6 +1,6 @@
 /* La arena sin red: la interfaz y la demostración se sirven desde la caché; el directo y la llamada (WebSocket) van
  * siempre por la red. Primero la caché y, por detrás, se refresca (stale-while-revalidate). */
-const VERSION = "arena-v3";
+const VERSION = "arena-v4";
 const SHELL = ["./", "index.html", "style.css", "app.js", "llamar.js", "config.js", "demo.json", "manifest.webmanifest",
                "icons/icono-192.png", "icons/icono-512.png", "icons/apple-touch-icon.png", "icons/favicon-32.png"];
 
