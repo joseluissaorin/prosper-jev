@@ -25,6 +25,7 @@ import httpx  # noqa: E402
 from google.genai import types  # noqa: E402
 
 import say as S  # noqa: E402
+import leer  # noqa: E402
 from jev import JEV, choice, noul  # noqa: E402
 from prosper_api import MADRID, ApiError, Prosper, normalize_national_id, parse_slot  # noqa: E402
 from system2 import CLIENT as GEMINI  # noqa: E402
@@ -402,6 +403,34 @@ class Brain:
         prev = self.s.ev.get("id_text", "") if self.s.pending.startswith("identity") else ""
         return f"{prev} {text}".strip() if prev and len(text.split()) <= 5 else text
 
+    def read_det(self, text: str) -> dict:
+        """Lo que se puede leer sin LLM, en microsegundos (ver leer.py)."""
+        t = self.id_text(text)
+        out = {"det": True}
+        nid = spoken_id(t)
+        if nid:
+            out["national_id"] = nid
+        dob = leer.parse_dob(t)
+        if dob:
+            out["date_of_birth"] = dob
+        ph = leer.parse_phone(t)
+        if ph and not (nid and nid[-9:].startswith(ph[:5])):
+            out["phone"] = ph
+        em = leer.parse_email(text)
+        if em:
+            out["email"] = em
+        return out
+
+    def det_enough(self, det: dict) -> bool:
+        """¿Basta la lectura determinista para lo que se espera en este turno?"""
+        s = self.s
+        if s.pending.startswith("reg_"):
+            f = s.pending[4:]
+            return {"national_id": "national_id" in det, "date_of_birth": "date_of_birth" in det, "phone": "phone" in det,
+                    "email": "email" in det, "insurer": True, "given_name": True, "surnames": True}.get(f, False)
+        identifying = not s.patient and s.intent in ("book", "reschedule", "cancel") and s.relation in (None, "self")
+        return identifying and any(k in det for k in ("national_id", "date_of_birth", "phone"))
+
     def extraction(self, text: str) -> asyncio.Task:
         """La extracción de un texto, una sola vez: la especulación la lanza y el turno definitivo la recoge."""
         cache = self.__dict__.setdefault("_ex_cache", {})
@@ -428,6 +457,11 @@ class Brain:
             return P(text=text, raw={"act": {"type": "choice", "choice": "unclear", "confidence": 1.0, "probabilities": {}}}, ex={}, ms=-1)
         if spec and et and not et.done():
             return P(text=text, raw=r["answers"], ms=r["ms"], hedged=r["hedged"], ex_task=et)
+        # lectura determinista: si basta para este turno, no se espera al LLM (sigue en segundo plano)
+        if et and not et.done():
+            det = self.read_det(text)
+            if self.det_enough(det):
+                return P(text=text, raw=r["answers"], ex=det, ms=r["ms"], ms_ex=0, hedged=r["hedged"], ex_task=et)
         ex, ms_ex = (await et) if et else ({}, 0)
         return P(text=text, raw=r["answers"], ex=ex, ms=r["ms"], ms_ex=ms_ex, hedged=r["hedged"])
 
@@ -524,8 +558,14 @@ class Brain:
             shadow.s, shadow.catalog, shadow._dry = copy.deepcopy(self.s), self.catalog, True
             return await shadow.handle(text, p)
         s = self.s
+        if not s.patient and not getattr(self, "_dry", False) and not s.pending.startswith("identity"):
+            s.ev["id_text"] = text[-300:]          # para casar el nombre con la ficha sin esperar a la extracción
         if p.ex_task is not None and not p.ex and not getattr(self, "_dry", False):
-            p.ex, p.ms_ex = await p.ex_task
+            det = self.read_det(text)
+            if not p.ex_task.done() and self.det_enough(det):
+                p.ex = det                           # la extracción sigue en segundo plano; no se la espera
+            else:
+                p.ex, p.ms_ex = await p.ex_task
         self.so_used = False
         if s.pending.startswith("identity") and not getattr(self, "_dry", False):
             s.ev["id_text"] = self.id_text(text)[-300:]
@@ -942,6 +982,12 @@ class Brain:
     def pick_by_name(self, ms: list[dict], name: str | None):
         if not ms:
             return None, 0.0, 0.0
+        if not name and self.s.ev.get("id_text"):
+            # sin extracción: ¿qué ficha aparece en lo que ha dicho? (proporción de su nombre y apellidos presentes)
+            scored = sorted(((leer.name_score(self.s.ev["id_text"], f"{m['given_name']} {m['first_surname']} {m['second_surname']}"), m) for m in ms),
+                            key=lambda x: -x[0])
+            if scored[0][0] >= 0.34:
+                return scored[0][1], scored[0][0], (scored[1][0] if len(scored) > 1 else 0.0)
         if not name:
             return (ms[0], 1.0, 0.0) if len(ms) == 1 else (None, 0.0, 0.0)
         scored = sorted(((name_sim(name, f"{m['given_name']} {m['first_surname']} {m['second_surname']}"), m) for m in ms), key=lambda x: -x[0])
@@ -1393,6 +1439,12 @@ class Brain:
                     s.reg["first_surname"] = person["first_surname"]
                 if person.get("second_surname"):
                     s.reg["second_surname"] = person["second_surname"]
+        if ask == "given_name" and not s.reg.get("given_name") and not ex.get("people"):
+            g = re_sub(r"^(?:(?:yes|yeah|sure|ok|okay|hi|hello|so|well|um|uh)[,.]?\s+)*(?:my (?:first )?name is|it's|it is|i'm|i am|me llamo|soy|mi nombre es|em dic|el meu nom és)\s+", "",
+                       text.strip().rstrip(".!"), ) if text else ""
+            w = [x for x in re_findall(r"[A-Za-zÀ-ÿ'-]+", g) if fold(x) not in FILLER]
+            if 1 <= len(w) <= 2:
+                s.reg["given_name"] = " ".join(x[:1].upper() + x[1:] for x in w)
         if ask == "surnames" and not (s.reg.get("first_surname") and s.reg.get("second_surname")):
             # el reconocedor a veces lo da en minúscula («castro vidal»): valen las palabras que no son de relleno
             ws = [w.strip(".,?!") for w in text.split() if w.strip(".,?!").isalpha() and fold(w.strip(".,?!")) not in FILLER]
