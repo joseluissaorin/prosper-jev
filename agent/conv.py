@@ -240,7 +240,43 @@ SITE_SOUNDS = {"centro": ("centro", "center", "centre", "central", "sentro"), "n
 # lo que puede sobrar entre un parcial y su definitivo sin cambiar nada de lo que hay que hacer
 # marcas de arranque: lo que dice una persona mientras piensa. Se sueltan solo cuando el plan NO está hecho al cerrar
 # el turno, para que la primera palabra salga sin esperar (ya están en la caché de voz, así que suenan en 0 ms).
-ARRANQUE = {"en": ["Right,", "Okay,", "Let's see,"], "es": ["Vale,", "A ver,", "Muy bien,"], "ca": ["Molt bé,", "A veure,", "D’acord,"]}
+# Cómo arranca a hablar una recepcionista mientras piensa. No es relleno: en español (y en las demás lenguas de aquí)
+# el marcador cambia según lo que acaba de hacer quien llama, y usar el que no toca suena mal. Un «vale» después de
+# «me duele el tobillo» es despachar a alguien; un «perfecto» después de «ese día no puedo» es no haber escuchado.
+# Por eso se elige por el acto de habla que ya juzga Jev, y nunca se repite el mismo dos veces seguidas.
+#   recibo  : acaba de dar un dato (nombre, DNI, fecha) → acuse
+#   acuerdo : acepta lo ofrecido → cierre positivo
+#   reparo  : dice que no, o corrige → se acusa el cambio sin celebrarlo
+#   busca   : pregunta algo → marcador de que se va a mirar
+#   empatia : cuenta una dolencia o un problema → primero la persona
+#   neutro  : cualquier otra cosa
+ARRANQUE = {
+    "es": {"recibo": ["Muy bien,", "Ajá,", "Gracias,"], "acuerdo": ["Perfecto,", "Estupendo,", "Muy bien,"],
+           "reparo": ["Entiendo,", "Sin problema,", "Claro,"], "busca": ["A ver,", "Pues mire,", "Déjeme ver,"],
+           "empatia": ["Vaya,", "Entiendo,", "Lo siento,"], "neutro": ["Bien,", "De acuerdo,", "Vale,"]},
+    "ca": {"recibo": ["Molt bé,", "Entesos,", "Gràcies,"], "acuerdo": ["Perfecte,", "Molt bé,", "Estupend,"],
+           "reparo": ["Entesos,", "Cap problema,", "És clar,"], "busca": ["A veure,", "Doncs miri,", "Deixi’m mirar,"],
+           "empatia": ["Vaja,", "Ho entenc,", "Ho sento,"], "neutro": ["Bé,", "D’acord,", "Molt bé,"]},
+    "gl": {"recibo": ["Moi ben,", "Aha,", "Grazas,"], "acuerdo": ["Perfecto,", "Estupendo,", "Moi ben,"],
+           "reparo": ["Entendo,", "Sen problema,", "Claro,"], "busca": ["A ver,", "Pois mire,", "Déixeme ver,"],
+           "empatia": ["Vaia,", "Entendo,", "Síntoo,"], "neutro": ["Ben,", "De acordo,", "Moi ben,"]},
+    "eu": {"recibo": ["Oso ondo,", "Bai,", "Eskerrik asko,"], "acuerdo": ["Primeran,", "Oso ondo,", "Bikain,"],
+           "reparo": ["Ulertzen dut,", "Ez dago arazorik,", "Jakina,"], "busca": ["Ikus dezagun,", "Begiratuko dut,", "Une bat,"],
+           "empatia": ["Ene,", "Ulertzen dut,", "Sentitzen dut,"], "neutro": ["Ondo da,", "Bale,", "Jakina,"]},
+    "en": {"recibo": ["Right,", "Thank you,", "Lovely,"], "acuerdo": ["Perfect,", "Lovely,", "Great,"],
+           "reparo": ["I see,", "No problem,", "Of course,"], "busca": ["Let's see,", "Let me see,", "Right,"],
+           "empatia": ["Oh dear,", "I see,", "I'm sorry to hear that,"], "neutro": ["Right,", "Okay,", "Sure,"]},
+    "fr": {"recibo": ["Très bien,", "D’accord,", "Merci,"], "acuerdo": ["Parfait,", "Très bien,", "Formidable,"],
+           "reparo": ["Je comprends,", "Pas de souci,", "Bien sûr,"], "busca": ["Voyons,", "Alors,", "Laissez-moi voir,"],
+           "empatia": ["Oh là,", "Je comprends,", "Je suis désolée,"], "neutro": ["Bien,", "D’accord,", "Entendu,"]},
+}
+# un marcador que ya dice el planificador al empezar su frase: si lo hemos dicho nosotros, se quita (nada de «Vale, vale»)
+MARCADOR_INICIAL = re.compile(r"^\s*(muy bien|ajá|aja|gracias|perfecto|estupendo|entiendo|sin problema|claro|a ver|pues mire|vaya|lo siento|bien|"
+                              r"de acuerdo|vale|molt bé|entesos|gràcies|perfecte|cap problema|és clar|a veure|vaja|ho entenc|ho sento|bé|d’acord|"
+                              r"moi ben|aha|grazas|sen problema|pois mire|vaia|síntoo|ben|de acordo|oso ondo|bai|eskerrik asko|primeran|bikain|"
+                              r"ulertzen dut|jakina|ondo da|bale|right|thank you|lovely|perfect|great|i see|no problem|of course|let'?s see|"
+                              r"let me see|oh dear|okay|sure|très bien|d’accord|merci|parfait|formidable|je comprends|pas de souci|bien sûr|"
+                              r"voyons|alors|oh là|entendu)\b[,.:;]?\s*", re.I)
 SPEC_FILLER = {"please", "thanks", "thank", "you", "um", "uh", "er", "erm", "hmm", "mm", "mhm", "ah", "oh", "well", "so", "right",
                "por", "favor", "gracias", "muchas", "eh", "pues", "bueno", "a", "ver", "si", "us", "plau", "gracies", "moltes",
                "sisplau", "vale", "ok", "okay", "perdone", "perdona", "perdoni", "disculpe"}
@@ -270,7 +306,9 @@ class St2:
     presented: dict = field(default_factory=dict)     # lo leído en la última intervención: {"ref":…, "turn":…}
     menu: list = field(default_factory=list)
     asked: dict = field(default_factory=dict)         # cuántas veces se ha pedido cada cosa (no se pide tres veces igual)
-    filler_turn: int = -9                             # último turno en que se arrancó con una marca («Vale,»)
+    filler_turn: int = -9
+    fillers: list = field(default_factory=list)       # los últimos marcadores dichos (para no repetirlos)
+    said_filler: bool = False                             # último turno en que se arrancó con una marca («Vale,»)
     said_when: bool = False                           # ¿ha dicho quien llama algo de cuándo? (si no, no hay fechas que aplicar)          # ofertas sobre la mesa en esta negociación (se puede volver a cualquiera)
     decline: str | None = None                        # negativa pendiente (se declara al colgar si no hubo escritura)
     escalated: bool = False
@@ -514,6 +552,7 @@ class Conv:
                                 "orthopaedics; periods or smear test is gynaecology; skin is dermatology; physio)?",
                                 {x["id"]: x["name"] for x in (self.catalog or {}).get("specialties", [])} | {"none": "Not stated or unclear"}),
             "for_other": noul("Is the appointment for someone other than the caller (their child, parent, grandchild, partner, or someone they care for)?"),
+            "ails": noul("Does the caller mention a symptom, pain, injury, illness or health worry (theirs or the patient's)?"),
             "names_doctor_or_site": noul("Does the caller ask for a specific doctor by name, a specific clinic site, or the nearest site to an address?"),
             "says_goodbye": noul("Does `caller` say goodbye, thank-you-and-bye, or that they need nothing else?"),
             # el transcriptor destroza los nombres propios por teléfono («Arenal Sur» → «Arenal, sir»): Jev los
@@ -678,17 +717,41 @@ class Conv:
                 return [self._log("speculation_reused", head_start_ms=head, why=why, partial=partial[:120])] + outs + wrote
         return await self._handle(text, p)
 
+    def filler_kind(self, p: P) -> str | None:
+        """Qué marcador toca por lo que acaba de hacer quien llama. None = mejor no decir nada."""
+        act = p.act[0]
+        if p.n("says_goodbye", 0.0) >= 0.5 or act in ("backchannel", "unclear", "end_call"):
+            return None                                   # despedirse o no haberle entendido no se acusa con un «vale»
+        if p.c("red_flag")[0] not in (None, "none") and p.c("red_flag")[1] >= 0.4:
+            return None                                   # una urgencia se atiende, no se comenta
+        if p.n("ails", 0.0) >= 0.6 and not self.s.asked.get("_empatia"):
+            self.s.asked["_empatia"] = 1                  # la dolencia se acusa una vez, no cada turno
+            return "empatia"
+        if p.n("accepts", 0.0) >= 0.6 or (act == "confirm" and p.act[1] >= 0.6):
+            return "acuerdo"
+        if act in ("reject", "correct"):
+            return "reparo"
+        if act == "ask_question":
+            return "busca"
+        if act == "provide_info":
+            return "recibo"
+        return "neutro"
+
     def start_filler(self, p: P):
-        """Una marca corta («Vale,», «Right,») mientras se planifica: nunca dos turnos seguidos, ni al despedirse."""
+        """Arrancar a hablar mientras se planifica, con el marcador que pide el acto de habla y sin repetirse."""
         s = self.s
-        if s.turn - getattr(s, "filler_turn", -9) < 2 or p.n("says_goodbye", 0.0) >= 0.5 or p.act[0] in ("backchannel", "unclear"):
+        kind = self.filler_kind(p)
+        if kind is None or s.turn - getattr(s, "filler_turn", -9) < 1:
             return
-        opts = ARRANQUE.get(self.lang3(), ARRANQUE["en"])
+        opts = [x for x in ARRANQUE.get(self.lang3(), ARRANQUE["en"])[kind] if x not in s.fillers[-2:]] or \
+            ARRANQUE.get(self.lang3(), ARRANQUE["en"])[kind]
         word = opts[s.turn % len(opts)]
         s.filler_turn = s.turn
+        s.fillers = (s.fillers + [word])[-4:]
+        s.said_filler = True
         try:
             self.on_early(word)
-            self._log("filler", text=word)
+            self._log("filler", kind=kind, text=word)
         except Exception:  # noqa: BLE001
             pass
 
@@ -798,6 +861,10 @@ class Conv:
             rest = [x for x in re.split(r"(?<=[.!?¡¿])\s+", said) if x and not re.search(
                 r"\b(done|booked|you'?re (all )?set|moved|cancel+ed|registered|hecho|listo|reservad|queda|anulad|cambiad|fet)\b", fold(x))]
             said = " ".join(rest) or {"es": "¿Algo más?", "ca": "Alguna cosa més?"}.get(self.lang3(), "Anything else?")
+        if s.said_filler:
+            said = MARCADOR_INICIAL.sub("", said, count=1)
+            said = (said[:1].upper() + said[1:]) if said else said
+            s.said_filler = False
         said = self.no_repetir(said)
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
         self.mark_read(said)

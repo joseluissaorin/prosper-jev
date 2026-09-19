@@ -79,7 +79,7 @@ def english_phrases() -> list[tuple[str, str]]:
             out += [(v, lang) for v in vs if "{" not in v]
     if AGENT == "v2":
         import conv as C
-        out += [(v, lang) for d in C.ARRANQUE.items() for lang, v in [(d[0], x) for x in d[1]]]
+        out += [(v, lang) for lang, kinds in C.ARRANQUE.items() for vs in kinds.values() for v in vs]
         out += [(v, lang) for d in C.ACK.values() for lang, v in d.items()]
         # lo que ahora dice el CÓDIGO (compositor y carril rápido): sin voz en caché no habría ganado nada
         out += [(v, lang) for d in list(C.SPEAK.values()) + list(C.ASK.values()) for lang, v in d.items() if "{" not in v]
