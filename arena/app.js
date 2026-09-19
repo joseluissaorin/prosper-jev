@@ -20,8 +20,16 @@
   "use strict";
   const CFG = window.ARENA_CONFIG || {};
   const qs = new URLSearchParams(location.search);
-  const WS_URL = qs.get("ws") || CFG.ws || "";
-  const TOKEN = qs.get("t") || CFG.token || "";
+  // el enlace privado (con token) se recuerda en este dispositivo: la app instalada abre sin parámetros
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("arena") || "{}"); } catch {}
+  if (qs.get("t")) {
+    saved = { ws: qs.get("ws") || "", call: qs.get("call") || "", t: qs.get("t") };
+    try { localStorage.setItem("arena", JSON.stringify(saved)); } catch {}
+  }
+  if (qs.get("olvidar") !== null) { try { localStorage.removeItem("arena"); } catch {} saved = {}; }
+  const WS_URL = qs.get("ws") || saved.ws || CFG.ws || "";
+  const TOKEN = qs.get("t") || saved.t || CFG.token || "";
   const REDUCED = matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // ------------------------------------------------------------------ lienzo

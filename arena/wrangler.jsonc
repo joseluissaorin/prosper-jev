@@ -5,5 +5,7 @@
   "account_id": "f22c7a728ddc8e41cefd2644f8fb7632",
   "compatibility_date": "2026-09-01",
   "observability": { "enabled": true },
-  "assets": { "directory": "." }
+  "assets": { "directory": "." },
+  "workers_dev": true,
+  "routes": [{ "pattern": "prosper.joseluissaorin.com", "custom_domain": true }]
 }

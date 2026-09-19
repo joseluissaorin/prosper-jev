@@ -9,8 +9,10 @@
   "use strict";
   const CFG = window.ARENA_CONFIG || {};
   const qs = new URLSearchParams(location.search);
-  const CALL_URL = qs.get("call") || CFG.call || "";
-  const TOKEN = qs.get("t") || CFG.token || "";
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("arena") || "{}"); } catch {}
+  const CALL_URL = qs.get("call") || saved.call || CFG.call || "";
+  const TOKEN = qs.get("t") || saved.t || CFG.token || "";
   if (!CALL_URL) return;                                  // sin instancia a la que llamar, no hay botón
 
   // pacientes de prueba de la clínica simulada (para identificarse por la línea o diciéndolo)
