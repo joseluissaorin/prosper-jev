@@ -2326,7 +2326,9 @@ CLINIC VOCABULARY
         if not self.caller_said(nid, lambda t: (normalize_national_id(spoken_id(t) or "")[0] or None), lambda x: re.sub(r"\W", "", (x or "").upper())):
             self._log("nid_invented", dropped=nid)
             return {"error": "the caller has not given that DNI/NIE: ask them to say it again, digit by digit with the letter"}
-        if ph == re.sub(r"\D", "", nid):
+        nd = re.sub(r"\D", "", nid)
+        if ph == nd or (len(nd) >= 7 and any(nd[i:i + 6] in ph for i in range(len(nd) - 5))):
+            # también a trozos: «892102719» son siete cifras del DNI 18921027 con dos de la fecha pegadas (réplica del 20-09)
             self._log("phone_invented", dropped=ph, why="son los dígitos del DNI")
             return {"error": "that is the DNI, not a phone number: ask the caller for their phone number"}
         if not self.caller_said(ph, leer.parse_phone, lambda x: re.sub(r"\D", "", x or "")):
