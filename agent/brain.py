@@ -132,11 +132,15 @@ def spoken_id(text: str) -> str | None:
                 first_letter = w.upper()
             elif digits:
                 letters.append(w.upper())
+                if len(digits) >= (7 if first_letter else 8):
+                    break                                 # el DNI acaba en su letra: lo que venga después (una fecha, un teléfono) no es suyo
         elif w in LETTER_WORDS:
             if not digits and LETTER_WORDS[w] in "XYZ":
                 first_letter = LETTER_WORDS[w]       # «why, one two three…»: la inicial del NIE, dicha por su nombre
             elif digits:
                 letters.append(LETTER_WORDS[w])
+                if len(digits) >= (7 if first_letter else 8):
+                    break
     need = 7 if first_letter else 8
     if not first_letter and len(digits) == 7 and letters:
         # un NIE del que no se ha oído la inicial («an NIE 1234567X»): la letra final solo cuadra con una de las

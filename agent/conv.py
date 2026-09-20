@@ -1863,14 +1863,16 @@ CLINIC VOCABULARY
         la gente dice los números en palabras («seis siete tres…»), así que buscar los dígitos en el texto crudo
         no vale de nada. Sin esto, el planificador rellenaba el teléfono con los dígitos del DNI."""
         turns = [h[8:] for h in self.s.history if h.startswith("Caller:")]
-        for t in turns + [" ".join(turns)]:
+        for i, t in enumerate(turns + [" ".join(turns)]):
             try:
                 got = read(t)
             except Exception:  # noqa: BLE001
                 got = None
             if got and norm(got) == norm(value):
                 return True
-            if norm(value) and norm(value) in norm(t):
+            # buscar las cifras tal cual solo vale DENTRO de un turno: con los turnos pegados, el final del DNI y el principio
+            # del teléfono formaban «963666278», un teléfono que nadie había dicho (arnés del 20-09, alta-013)
+            if i < len(turns) and norm(value) and norm(value) in norm(leer.words_to_numbers(t) if any(c.isdigit() for c in norm(value)) else t):
                 return True
         return False
 
@@ -2342,6 +2344,7 @@ CLINIC VOCABULARY
         return {"status": f"cancelled {len(c['ids'])} appointment(s)", "count": len(c["ids"])}
 
     async def t_prepare_registration(self, **r) -> dict:
+        self.s.asked["_alta"] = 1                         # en un alta, que no haya ficha es lo normal
         s = self.s
         if not (s.wants_register or s.not_found):
             return {"error": "only for someone who is not on file: identify the patient first (identify_patient)"}
@@ -2723,7 +2726,7 @@ CLINIC VOCABULARY
                 s.msgs.append(types.Content(role="user", parts=[types.Part(text=f"(System: you have asked for the {campo} {n} times and it is not "
                                                                                 "working. Do not ask for it again: carry on with what you already "
                                                                                 "have, or tell them you will sort it another way.)")]))
-                if not s.patients and campo in ("national_id", "date_of_birth", "name"):
+                if not s.patients and campo in ("national_id", "date_of_birth", "name") and not s.asked.get("_alta"):
                     # sin ficha no hay «lo que tengo» con lo que seguir: decirlo dejaba la llamada en un callejón («Don't worry,
                     # let's carry on» dos veces seguidas, arnés del 20-09). Se dice la verdad y se dan las dos salidas, una vez.
                     if s.asked.get("_sin_ficha"):
