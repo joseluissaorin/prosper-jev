@@ -771,6 +771,15 @@ class Conv:
                 return [self._log("speculation_reused", head_start_ms=head, why=why, partial=partial[:120])] + outs + wrote
         return await self._handle(text, p)
 
+    def habla_de_cuando(self, p: P, text: str) -> bool:
+        """¿Dice quien llama algo de CUÁNDO en este turno? (una fecha, un día de la semana, una parte del día, «más tarde»…)"""
+        return bool((p.c("date_kind")[0] not in (None, "none") and p.c("date_kind")[1] >= 0.5) or (p.c("weekday")[0] not in (None, "none") and p.c("weekday")[1] >= 0.5)
+                    or (p.c("part")[0] not in (None, "any") and p.c("part")[1] >= 0.5) or re.search(
+                    r"\b(week|semana|setmana|tomorrow|mañana|demà|today|month|mes|later|earlier|después|antes|tarde|morning|afternoon|evening|"
+                    r"monday|tuesday|wednesday|thursday|friday|saturday|lunes|martes|miércoles|jueves|viernes|sábado|dilluns|dimarts|dimecres|dijous|"
+                    r"divendres|dissabte|january|february|march|april|may|june|july|august|september|october|november|december|enero|febrero|"
+                    r"septiembre|octubre|noviembre|diciembre|\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}(st|nd|rd|th))\b", fold(text)))
+
     def filler_kind(self, p: P) -> str | None:
         """Qué marcador toca por lo que acaba de hacer quien llama. None = mejor no decir nada."""
         act = p.act[0]
@@ -888,12 +897,7 @@ class Conv:
         if re.search(r"\b(appointment|appointments|book|booking|slot|see (a|the) (doctor|gp|specialist)|cita|citas|hora|visita|reservar|pedir hora|"
                      r"consulta|demanar hora|visitar)\b", fold(text)):
             s.wants_appt = True
-        if (p.c("date_kind")[0] not in (None, "none") and p.c("date_kind")[1] >= 0.5) or (p.c("weekday")[0] not in (None, "none") and p.c("weekday")[1] >= 0.5) \
-                or (p.c("part")[0] not in (None, "any") and p.c("part")[1] >= 0.5) or re.search(
-                    r"\b(week|semana|setmana|tomorrow|mañana|demà|today|month|mes|later|earlier|después|antes|tarde|morning|afternoon|evening|"
-                    r"monday|tuesday|wednesday|thursday|friday|saturday|lunes|martes|miércoles|jueves|viernes|sábado|dilluns|dimarts|dimecres|dijous|"
-                    r"divendres|dissabte|january|february|march|april|may|june|july|august|september|october|november|december|enero|febrero|"
-                    r"septiembre|octubre|noviembre|diciembre|\d{1,2}(:\d{2})?\s*(am|pm)|\d{1,2}(st|nd|rd|th))\b", fold(text)):
+        if self.habla_de_cuando(p, text):
             s.said_when = True
         # 2. identificación anticipada en código: un dato exacto dicho + el nombre en lo dicho = ficha, sin gastar un paso
         pre = await self.prelookup(text)
@@ -949,6 +953,12 @@ class Conv:
             if sin:                                       # si la frase ERA solo el marcador, se deja como estaba
                 said = sin[:1].upper() + sin[1:]
             s.said_filler = False
+        if not s.patients and len(getattr(self, "_line", None) or []) == 1 and not s.for_other and s.lang in ("en", "es", "ca") and re.search(
+                r"\b(dni|nie|date of birth|fecha de nacimiento|data de naixement)\b", fold(said)) and not s.asked.get("_con_quien"):
+            # la clínica ya conoce esa línea: se pregunta con quién se habla, no se interroga (una vez; si el nombre no casa, ya se pedirá más)
+            s.asked["_con_quien"] = 1
+            self._log("dni_no_pedido", was=said[:120])
+            said = self._sp("need_name_known_line")
         said = self.no_repetir(said)
         said = self.guard(said) or SORRY.get(s.lang, SORRY["en"])
         self.mark_read(said)
@@ -1339,7 +1349,8 @@ class Conv:
         fn = getattr(self, f"c_{name}", None)
         said = fn(res) if fn else None
         if said and name == "find_slots" and res.get("offer"):
-            said = self.ya_tiene_cita(res) + said
+            pre = self.ya_tiene_cita(res)
+            said = pre + (said[:1].lower() + said[1:] if pre else said)
         if said and name in ("find_slots", "list_appointments", "prepare_cancellation"):
             said = self.reconocer() + said
         # repetir palabra por palabra lo ya dicho en esta llamada no es contestar: que el planificador lo diga de otro modo
@@ -1700,6 +1711,10 @@ CLINIC VOCABULARY
         if not self.verified(patient_id):
             return {"error": "identify the patient first"}
         ap = await API.appointments(patient_id, "upcoming")
+        # el calendario de la clínica es fijo y su «próximas» puede traer citas de días que ya han pasado: a quien llama
+        # hoy no se le dice «veo que tiene cita el lunes 14» si hoy es 20
+        hoy = self.s.t0.strftime("%Y-%m-%dT%H:%M")
+        ap = [a for a in ap if a["start_time"][:16] >= hoy] or ap
         self.s.appts[patient_id] = ap
         return {"appointments": [{"appointment_id": a["appointment_id"], "when": S.when(self.lang3(), parse_slot(a["start_time"])),
                                   "iso": parse_slot(a["start_time"]).strftime("%Y-%m-%dT%H:%M"), "doctor": self.prov(a["provider_id"])["name"],
@@ -1722,7 +1737,7 @@ CLINIC VOCABULARY
         p_ = self._p
         recien = [k for k in s.menu if s.offers.get(k, {}).get("status") == "open" and s.offers[k].get("turn") == s.turn - 1]
         if recien and p_ is not None and p_.act[0] in ("provide_info", "backchannel") and p_.n("asks_question", 0.0) < 0.5 and p_.n("accepts", 0.0) < 0.6 \
-                and all((p_.c(k)[0] in (None, d) or p_.c(k)[1] < 0.5) for k, d in (("date_kind", "none"), ("weekday", "none"), ("part", "any"))) \
+                and not self.habla_de_cuando(p_, p_.text or "") \
                 and p_.n("names_doctor_or_site", 0.0) < 0.5 and not re.search(r"\b(otr[oa]s?|other|another|else|more|más|altre|següent|siguiente|next)\b", fold(p_.text or "")):
             # «I'm her son, Peter» no es un «no»: medido con guion.py, el planificador buscaba otro hueco a ciegas
             self._log("research_blocked", offers=recien, act=p_.act[0])
@@ -1891,7 +1906,9 @@ CLINIC VOCABULARY
                 res["next_step"] = ("tell them nothing fits and offer this alternative (read it back); if they refuse and want nothing else, "
                                     "decline(no_availability)")
                 return res
-        res["next_step"] = "nothing in the calendar fits: explain and decline(no_availability) unless they change what they want"
+        res["next_step"] = ("nothing in the calendar fits THOSE conditions. Do not give up yet: tell them which condition has no availability "
+                            "(that part of the day, that doctor, those dates) and offer to look without it; call find_slots again without that "
+                            "condition if they agree. Only decline(no_availability) if they refuse every alternative.")
         return res
 
     def site_open(self, lid: str, d: date, part: str) -> bool:
