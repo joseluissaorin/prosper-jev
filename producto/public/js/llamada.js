@@ -313,7 +313,7 @@
   }
   function imprimir() {
     if (!actaPropia) return;
-    try { sessionStorage.setItem("acta-propia", JSON.stringify(actaPropia)); } catch {}
+    try { localStorage.setItem("digame-acta-propia", JSON.stringify(actaPropia)); } catch {}
     window.open("/acta.html?mia=1", "_blank");
   }
 

@@ -550,6 +550,8 @@ class Conv:
         solo si hay algo que mirar: a un «Hello» no se contesta «Let me check» (pasaba en todas las llamadas del
         20-09), un «sí» se acusa con «Perfecto,», y el mismo acuse no suena dos veces seguidas. "" = mejor callar."""
         s, lang = self.s, self.lang3()
+        if time.time() - getattr(self, "_acuse_t", 0.0) < 3.0:
+            return ""                                     # ya ha sonado un arranque («I see,») en este turno
         if p is not None:
             act = p.act[0]
             pocas = len((p.text or "").split()) < 4
@@ -561,9 +563,11 @@ class Conv:
             if kind:
                 opts = [x for x in ARRANQUE[lang][kind] if x not in s.fillers[-2:]] or ARRANQUE[lang][kind]
                 s.fillers = (s.fillers + [opts[0]])[-4:]
+                self._acuse_t = time.time()
                 return opts[0]
         opts = [x for x in HOLD[lang] if x not in s.fillers[-2:]] or HOLD[lang]
         s.fillers = (s.fillers + [opts[0]])[-4:]
+        self._acuse_t = time.time()
         return opts[0]
 
     def lang3(self) -> str:
@@ -892,6 +896,9 @@ class Conv:
         kind = self.filler_kind(p)
         if kind is None or s.filler_turn >= s.turn + 1:      # uno por turno (el parcial ya lo cuenta para el que viene)
             return
+        if time.time() - getattr(self, "_acuse_t", 0.0) < 3.0:
+            return                                        # acaba de sonar «Let me check.»: encima no va un «I see,» (práctica del 20-09, 08:41)
+        self._acuse_t = time.time()
         lg, lc = p.c("lang")
         propio = lg in ARRANQUE and lc >= 0.9 and not self.solo_datos(p.text) and len(p.text.split()) >= 5
         lang = lg if (propio and not s.lang_locked) else (s.lang if s.lang in ARRANQUE else "en")
