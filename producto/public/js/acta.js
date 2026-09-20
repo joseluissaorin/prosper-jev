@@ -69,11 +69,12 @@
     } else if (ev.tipo === "puerta") {
       d.className = `puerta ${ev.ok ? "abierta" : "cerrada"}`;
       const checks = (ev.checks || []).map((c) =>
-        `<span class="chk ${c.ok === false ? "no" : ""}">${esc(c.k)}${typeof c.v === "number" ? ` <small>${coma(c.v)}</small>` : ""}</span>`).join("");
+        `<span class="chk ${c.ok === false ? "no" : ""}">${esc(c.k)}${typeof c.v === "number" ? ` <small>${coma(c.v)}</small>` : ""}${c.nota ? ` <small>(${esc(c.nota)})</small>` : ""}</span>`).join("");
       d.innerHTML = `<div class="caja"><b>${ev.ok ? "PUERTA" : "PUERTA CERRADA"}</b>${checks}${ev.ok ? "" : `<span class="chk no">falta un «sí» claro: vuelve a preguntar</span>`}<div class="sello">PUERTA<br>· SÍ ·<br>CLARO</div></div>`;
     } else if (ev.tipo === "escrito") {
-      d.className = "escrito";
-      d.innerHTML = `<span><b>ESCRITO</b>${esc(mask(ev.texto))}</span>`;
+      const sinEscribir = /NO_ACTION|ESCALATE/.test(String(ev.accion || ""));
+      d.className = "escrito" + (sinEscribir ? " declarado" : "");
+      d.innerHTML = `<span><b>${sinEscribir ? "DECLARADO" : "ESCRITO"}</b>${esc(mask(ev.texto))}</span>`;
     }
     return d;
   }

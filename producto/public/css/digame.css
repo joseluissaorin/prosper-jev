@@ -189,6 +189,7 @@ body.en-llamada .cuna, body.en-acta .cuna { display: none; }
 .escrito { display: grid; grid-template-columns: 5.2rem minmax(0, 1fr) var(--glosa); gap: 0 1.1rem; padding: .35rem 0 .9rem; animation: entra .45s; }
 .escrito span { grid-column: 2 / 4; font-family: var(--mono); font-size: .76rem; letter-spacing: .06em; color: var(--azul); }
 .escrito span b { letter-spacing: .22em; margin-right: .8em; }
+.escrito.declarado span { color: var(--terracota); }
 
 .acta-cab { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: end; border-bottom: 3px solid var(--tinta); padding-bottom: .8rem; margin-bottom: .6rem; }
 .acta-cab h1 { margin: 0; font-size: clamp(2.6rem, 7vw, 5.4rem); font-weight: 500; font-style: italic; letter-spacing: -.045em; line-height: .9; }

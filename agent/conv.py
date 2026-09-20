@@ -497,6 +497,18 @@ class Conv:
         self.s.last_agent = text
         self.s.history.append(f"Receptionist: {text}")
         try:
+            # qué ofertas de la mesa han SONADO (su hora y su médico): «la primera que me dijo» solo puede ser una de esas
+            nums, low = set(re.findall(r"\d{1,2}", text)), fold(text)
+            for k in self.s.menu:
+                o = self.s.offers.get(k) or {}
+                if o.get("status") == "open" and not o.get("heard"):
+                    dt = parse_slot(o["slot"]["start_time"])
+                    if ({str(dt.hour), str(dt.hour % 12 or 12)} & nums) and (
+                            fold(self.prov(o["slot"]["provider_id"])["name"]).split()[-1] in low or (self.s.presented or {}).get("ref") == k):
+                        o["heard"] = True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
             # lo dicho, con su hora: el informe guardado se puede leer intercalado (la transcripción no lleva tiempos)
             self._log("said", text=text)
         except Exception:  # noqa: BLE001  (la observabilidad nunca rompe una llamada)
@@ -919,6 +931,13 @@ class Conv:
         self._said_done = False
         s.version += 1
         s.turn += 1
+        oidas = [k for k in s.menu if (s.offers.get(k) or {}).get("heard")]
+        mudas = [k for k in s.menu if (s.offers.get(k) or {}).get("status") == "open" and not s.offers[k].get("heard")]
+        if oidas and mudas:
+            # una oferta que el núcleo buscó por adelantado pero que nunca llegó a sonar no está «sobre la mesa» para quien
+            # llama: medido el 20-09 en voz, «la primera que me dijo» se resolvía a un hueco que la persona no había oído
+            s.menu = [k for k in s.menu if k not in mudas]
+            self._log("unsaid_offers_dropped", offers=mudas)
         s.history.append(f"Caller: {text}")
         out = [self._log("perception", text=text, ms=p.ms,
                          j={k: (v.get("choice"), v.get("confidence")) if v["type"] == "choice" else v.get("noul") for k, v in p.raw.items()})]
