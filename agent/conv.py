@@ -319,6 +319,7 @@ class St2:
     escalated: bool = False
     last_block: str | None = None
     seen_rules: list = field(default_factory=list)    # reglas que la API devolvió de verdad (las únicas declarables)
+    for_other: bool = False                           # la cita es para otra persona, no para quien llama
     oos_seen: str | None = None                       # Jev vio en algún turno algo que hay que declinar (ventas, datos de otro…)
     checked: bool = False                             # ¿se ha llegado a mirar la agenda? (sin eso no hay regla que declarar)
     wants_appt: bool = False                          # quien llama ha pedido una cita con sus palabras
@@ -817,6 +818,8 @@ class Conv:
         oo, oc = p.c("oos")
         if oo and oo != "none" and oc >= 0.5:
             s.oos_seen = oo
+        if p.n("for_other") >= 0.5:
+            s.for_other = True
         sp, spc = p.c("specialty")
         if sp and sp != "none" and spc >= 0.8:
             s.specialty = sp
@@ -1614,6 +1617,14 @@ CLINIC VOCABULARY
             # sobre el síntoma. Si una regla ya ha obligado a cambiar de especialidad, no se toca.
             self._log("specialty_corrected", was=specialty, now=s.specialty)
             specialty = s.specialty
+        if purpose == "book" and s.for_other and (self.verified(patient_id) or {}).get("_caller"):
+            # medido en la ronda puntuada de third_party del 20-09 a la 01:30: Jev dio for_other=0,97 con «an
+            # orthopedics appointment for my father», y el planificador reservó para la hija, identificada por su
+            # propia línea. Cuatro casos a cero. El arnés lo reproduce con el comportamiento `se_identifica_a_si_mismo`.
+            self._log("patient_is_caller", patient=patient_id)
+            return {"error": "this appointment is for someone else, not for the caller: that patient_id is the caller's own record. "
+                             "Ask for the PATIENT's full name and their date of birth or DNI, call identify_patient with is_caller=false, "
+                             "and use that patient_id."}
         if not specialty:
             return {"error": "need the specialty (or a doctor)"}
         if not s.specialty and not provider_id and purpose == "book" and not s.seen_rules:
