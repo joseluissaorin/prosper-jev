@@ -58,7 +58,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* ------------------------------------------------------------------ portada */
 .portada { position: relative; min-height: 100svh; overflow: hidden; border-bottom: 1px solid var(--tinta); }
 #arena { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-.portada-capa { position: relative; z-index: 5; min-height: 100svh; display: grid; grid-template-rows: 1fr auto; padding-top: 4.5rem; pointer-events: none; }
+.portada-capa { position: relative; z-index: 5; min-height: 100svh; display: grid; grid-template-rows: 1fr auto; grid-template-columns: minmax(0, 1fr); padding-top: 4.5rem; pointer-events: none; }
 .portada-capa > * { pointer-events: auto; }
 
 .gigante {
@@ -473,6 +473,14 @@ body.en-llamada .cuna, body.en-acta .cuna { display: none; }
   .pestanas a { white-space: nowrap; }
 }
 @media (max-width: 560px) {
+  .pliego-vivo { width: 100%; margin: 0; border-left: 0; border-right: 0; max-height: calc(100svh - 4.2rem); }
+  .pliego-pie .acciones { width: 100%; }
+  .pliego-pie .boton { flex: 1; text-align: center; padding: .7rem .6rem; font-size: .66rem; }
+  .pliego-cab .rotulo:last-child { display: none; }
+  .glosa { grid-template-columns: minmax(0, 1fr) 2.6rem 2.1rem; }
+  .lema h2 { font-size: 1.35rem; }
+  .disco { --d: 6.4rem; }
+  .movil { transform: none; }
   .cuatro, .escalera, .papeles, .retos, .precios, .clausulas, .gemelo-cols, .dudas, .rejilla-3, .fichas { grid-template-columns: 1fr; }
   .cuatro > div, .precios > div { border-right: 0; padding-left: 0; border-bottom: 1px solid color-mix(in srgb, currentColor 25%, transparent); padding-bottom: 1.2rem; }
   .gemelo-form { flex-direction: column; }

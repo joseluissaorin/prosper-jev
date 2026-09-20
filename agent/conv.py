@@ -1745,7 +1745,8 @@ CLINIC VOCABULARY
             d = re.sub(r"\D", "", v or "")
             if not d:
                 continue
-            ok_said = d in said_digits or (k == "date_of_birth" and (leer.parse_dob(said) == date_of_birth or d[2:] in said_digits))
+            ok_said = d in said_digits or (k == "date_of_birth" and (leer.parse_dob(said) == date_of_birth or d[2:] in said_digits or any(
+                leer.parse_dob(h[8:]) == date_of_birth for h in self.s.history if h.startswith("Caller:"))))   # turno a turno: puede haber dicho antes otra fecha
             if not ok_said:
                 # el modelo no inventa datos de identidad: solo valen las cifras que ha dicho quien llama
                 self._log("identifier_invented", field=k, dropped=v)

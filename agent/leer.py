@@ -53,7 +53,12 @@ def words_to_numbers(text: str) -> str:
     """«nineteen eighty-four» → «1984», «the third» → «3», «cuarenta y cuatro» → «44», «seixanta-nou» → «69»."""
     t = fold(text)
     t = re.sub(r"(\d+)(st|nd|rd|th|º|ª|o|a)\b", r"\1", t)
+    iso = {}                                                  # una fecha ISO («2017-05-12») no se toca
+    t = re.sub(r"\b\d{4}-\d{2}-\d{2}\b", lambda m: iso.setdefault(f"isofecha{chr(97 + len(iso))}", m.group(0)) and f"isofecha{chr(96 + len(iso))}", t)
     t = t.replace("-", " ")
+    # el año dicho entero: «mil novecientos ochenta y siete», «dos mil diecisiete», «two thousand and seventeen», «mil nou-cents…»
+    t = re.sub(r"\bmil (novecientos|nou cents)\b", "1900", t)
+    t = re.sub(r"\b(dos mil|two thousand)( and)?\b", "2000", t)
     toks = re.findall(r"[a-z]+|\d+|[^\sa-z\d]", t)
     out, i = [], 0
     while i < len(toks):
@@ -83,9 +88,13 @@ def words_to_numbers(text: str) -> str:
         i += 1
     s = " ".join(out)
     s = re.sub(r"\s*([/-])\s*", r"\1", s)                    # 12 / 03 / 1984 → 12/03/1984
-    s = re.sub(r"\b(1[0-9]) ([0-9]{2})\b", r"\1\2", s)          # 19 84 → 1984 (año en dos grupos)
+    # 19 84 → 1984 (año en dos grupos). Si detrás viene otro par, el año es el de la derecha: «october 18 19 93» es el 18 de
+    # octubre de 1993, no «1819 93» (así se leía, y la fecha de nacimiento dicha sin comas se descartaba como inventada)
+    s = re.sub(r"\b(1[0-9]) ([0-9]{2})\b(?! [0-9]{2}\b)", r"\1\2", s)
     s = re.sub(r"\b(20) (0[0-9]|1[0-9]|2[0-6])\b", r"\1\2", s)  # 20 19 → 2019
-    s = re.sub(r"\b(2000|1900) ([1-9])\b", lambda m: str(int(m.group(1)) + int(m.group(2))), s)   # two thousand five
+    s = re.sub(r"\b(2000|1900) ([0-9]{1,2})\b", lambda m: str(int(m.group(1)) + int(m.group(2))), s)   # two thousand five, mil novecientos 87
+    for k, v in iso.items():
+        s = s.replace(k, v)
     return s
 
 
@@ -101,6 +110,7 @@ def _year(y: str) -> int | None:
 def parse_dob(text: str) -> str | None:
     """Fecha de nacimiento dicha de cualquier forma habitual → ISO, o None."""
     t = words_to_numbers(text)
+    t = re.sub(r"['’]", " ", t)                               # «d'abril»
     t = re.sub(r"\b(of|de|del|d)\b", " ", t)
     t = re.sub(r"[,.]", " ", t)
     m = re.search(r"\b(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})\b", t)
