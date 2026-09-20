@@ -142,6 +142,9 @@ def save(run: dict) -> None:
 
 def _local_agent() -> bool:
     """¿El agente corre en esta misma máquina? (En el NAS, sí: no hace falta SSH.)"""
+    import shutil
+    if not shutil.which("systemctl"):                   # en el Mac puede haber otra cosa en el 7860 (un túnel): no es el NAS
+        return False
     try:
         urllib.request.urlopen("http://127.0.0.1:7860/health", timeout=3).read()
         return True
@@ -190,7 +193,9 @@ def nas_check(restart: bool = False, p: Panel | None = None) -> bool:
            "systemctl --user show prosper-agent -p ActiveEnterTimestampMonotonic --value && "
            "systemctl --user show prosper-agent -p ActiveEnterTimestamp --value && cat /proc/uptime")
     try:
-        out = subprocess.run(["ssh", "-o", "ConnectTimeout=8", NAS, cmd], capture_output=True, text=True, timeout=30).stdout.split("\n")
+        # en el propio NAS no hay que entrar por SSH (ni hay clave para entrar en sí mismo): se pregunta en local
+        run = ["bash", "-c", cmd] if _local_agent() else ["ssh", "-o", "ConnectTimeout=8", NAS, cmd]
+        out = subprocess.run(run, capture_output=True, text=True, timeout=30).stdout.split("\n")
         head, commit_ts = out[0].split()
         started_ts = time.time() - float(out[3].split()[0]) + int(out[1]) / 1e6
         started_txt = out[2]
