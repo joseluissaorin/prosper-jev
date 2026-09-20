@@ -2400,6 +2400,17 @@ CLINIC VOCABULARY
                 cand.append((sc_, k))
         cand.sort(reverse=True)
         oida = cand[0][1] if cand and (len(cand) == 1 or cand[0][0] - cand[1][0] >= 0.1 or cand[0][1] == ins) else None
+        if not oida:
+            # lo que contestó justo cuando se le preguntó por el seguro sí se compara por SONIDO: el oído destroza los nombres
+            # («a de eslas», «Sunita», «signer») y ahí no hay nombres propios ni correos que confundan
+            h = self.s.history
+            resp = [h[i][8:] for i in range(1, len(h)) if h[i].startswith("Caller:") and h[i - 1].startswith("Receptionist:")
+                    and re.search(r"insur|seguro|mutua|assegur|aseguradora|poliza|policy", fold(h[i - 1]))]
+            for t_ in reversed(resp):
+                k_, sc_ = leer.best_match(t_, {k: v for k, v in plans.items() if k != "privado"})
+                if k_:
+                    oida = k_
+                    break
         if cand and any(k == ins for _, k in cand):
             oida = ins                                    # la que propone el planificador SÍ se ha dicho: vale
         sin_seguro = bool(re.search(r"\b(private(ly)?|privad[oa]|no insurance|sin seguro|pay (for it )?myself|de pago|particular|self.?pay|out of pocket|"
