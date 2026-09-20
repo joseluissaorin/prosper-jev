@@ -20,12 +20,18 @@ La web de la arena (`https://prosper.joseluissaorin.com`) está en Cloudflare y 
 
 ## Las rondas puntuadas, solas
 
-`/tmp/puntuadas3.py`, como servicio `puntuadas`. El panel ya **no tiene ronda completa**: cada ronda puntuada es de
+`agent/puntuadas.py` (copiado a `/tmp/puntuadas3.py`, que es lo que ejecuta el servicio `puntuadas`; vivía solo en
+`/tmp` y se habría perdido en el primer reinicio). El panel ya **no tiene ronda completa**: cada ronda puntuada es de
 un problema y el total del equipo es la suma de la **mejor** ronda de cada uno. Por eso el guion:
 
 1. mira qué problema tiene más puntos por ganar y lanza ese;
 2. respeta la espera entre rondas que impone el panel;
 3. antes de cada ronda comprueba `/health` del agente y lo reinicia si no responde;
+3 bis. **lo que falta lo dice el panel, no una estimación nuestra.** Prosper acredita por CASO y guarda el mejor de
+   cada uno; el máximo por ronda se queda corto y hace creer que quedan puntos donde no los hay. A las 03:05 del
+   20-09 el lanzador llevaba cinco rondas y cuarenta minutos en `nearest_site` creyendo que faltaban 9 cuando ya
+   estaba 4/4 acreditado —cero puntos—, mientras `change_and_cancel` y `no_slot_free` (+8 cada uno) seguían sin
+   lanzarse ni una vez. Ahora usa `progress` del panel: `(credited_of - credited) × peso`;
 4. para solo a las 05:40, antes de que se congele el marcador (06:00).
 
 Para verlo: `journalctl --user -u puntuadas -f`. Para pararlo: `systemctl --user stop puntuadas`.
