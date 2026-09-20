@@ -71,7 +71,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .gigante .q { color: var(--terracota); font-style: normal; font-weight: 400; }
 .portada-pie {
   display: grid; grid-template-columns: auto 1fr auto; gap: clamp(1rem, 4vw, 3.5rem); align-items: end;
-  padding: 0 clamp(1.1rem, 4vw, 3rem) clamp(1.4rem, 4vh, 2.8rem);
+  padding: 0 clamp(9rem, 20vw, 18rem) clamp(1.4rem, 4vh, 2.8rem) clamp(1.1rem, 4vw, 3rem);
 }
 .lema { max-width: 31rem; }
 .lema h2 { margin: 0 0 .5rem; font-weight: 500; font-size: clamp(1.5rem, 2.6vw, 2.3rem); line-height: 1.08; letter-spacing: -.02em; }
@@ -445,7 +445,7 @@ body.en-llamada .cuna, body.en-acta .cuna { display: none; }
 /* ------------------------------------------------------------------ móvil */
 @media (max-width: 900px) {
   body { font-size: 1.05rem; }
-  .portada-pie { grid-template-columns: auto 1fr; }
+  .portada-pie { grid-template-columns: auto 1fr; padding-right: clamp(1.1rem, 4vw, 3rem); }
   .susurro { display: none; }
   .gigante { transform: rotate(-7deg) translateX(-2vw); font-size: 25vw; }
   .borde { display: none; }

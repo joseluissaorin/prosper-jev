@@ -60,8 +60,9 @@
       if (sh === "reposo") {                                  // duna asentada, de lado a lado
         const u = (i / N) * 2 - 1;
         x = W / 2 + u * W * 0.52;
-        const h = H * 0.2 * Math.exp(-((u - (state.lado - 0.5) * 1.6) ** 2) * 2.6) + H * 0.035 * Math.sin(u * 7);
-        y = H * 0.93 - r * h;
+        const ancho = W > 900;
+        const h = H * (ancho ? 0.26 : 0.16) * Math.exp(-((u - (ancho ? 0.55 : 0.1)) ** 2) * (ancho ? 7 : 3)) + H * 0.012 * (1 + Math.sin(u * 9));
+        y = H * (ancho ? 0.975 : 0.62) - r * h;
       } else if (sh === "escucha") {
         const k = 1 + 0.10 * noise(Math.cos(a), Math.sin(a), t) + 0.10 * state.energy;
         x = cx + Math.cos(a) * r * RR * k; y = cy + Math.sin(a) * r * RR * k * 0.92;

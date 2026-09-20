@@ -1370,13 +1370,14 @@ class Conv:
         self._errs = {}
         system = self.system_prompt()
         events, ended = [], False
+        tools = TOOLS
         for step in range(7):
             t0 = time.perf_counter()
             try:
-                cand = await llm_step(system, s.msgs, TOOLS, timeout=5)
+                cand = await llm_step(system, s.msgs, tools, timeout=5)
             except Exception as e:  # noqa: BLE001
                 events.append(self._log("planner_retry", error=repr(e)[:120]))
-                cand = await llm_step(system, s.msgs, TOOLS, timeout=6)
+                cand = await llm_step(system, s.msgs, tools, timeout=6)
             ms = round((time.perf_counter() - t0) * 1000)
             for kind, kw in circuit_events():
                 events.append(self._log(kind, **kw))
@@ -1444,7 +1445,11 @@ class Conv:
                 s.msgs.append(types.Content(role="user", parts=[types.Part(text="(The same tool error happened twice. Stop calling tools now: "
                                                                                  "say one short sentence to the caller that moves things forward.)")]))
                 self._errs = {}
-                cfg = cfg.model_copy(update={"tool_config": types.ToolConfig(function_calling_config=types.FunctionCallingConfig(mode="NONE"))})
+                # el siguiente paso va SIN herramientas: tiene que hablar. (Hasta el 20-09-2026 aquí se tocaba un `cfg` que
+                # no existía en esta función: UnboundLocalError, el turno moría y el agente decía «¿me lo puede repetir?».
+                # Era el `planner_error` del 3,4 % de las llamadas en docs/modos-de-fallo.md.)
+                tools = None
+                events.append(self._log("tools_off", why="el mismo error de herramienta dos veces"))
         return "", ended, events
 
     # ------------------------------------------------------------ la frase la escribe el CÓDIGO
