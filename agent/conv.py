@@ -1010,7 +1010,15 @@ class Conv:
         st, stc = self.heard_site(p)
         if not st and re.search(r"\barenal\b", fold(text)):
             st, stc = self.site_in_words(text), 0.5
-        if st and st != s.site:
+        solo_pregunta = (p.n("asks_question", 0.0) >= 0.5 or p.act[0] == "ask_question") and not (
+            p.c("intent")[0] in ("book", "reschedule") and p.c("intent")[1] >= 0.5) and not re.search(
+                r"\b(appointment|book|booking|slot|cita|hora|reservar|visita|consulta)\b", fold(text))
+        if st and st != s.site and solo_pregunta:
+            # «¿dónde está Arenal Sur?» es una pregunta, no pedir la cita allí. Sin esto la sede quedaba fijada, todas las
+            # búsquedas se hacían solo en ella y la llamada acababa en «no hay huecos» (arnés, preguntas-009: era el otro
+            # «fallo de siempre»; en Sur no hay ginecología)
+            out.append(self._log("site_only_asked", site=st))
+        elif st and st != s.site:
             s.site = st
             out.append(self._log("site_heard", site=st, conf=round(stc, 2)))
         if re.search(r"\b(appointment|appointments|book|booking|slot|see (a|the) (doctor|gp|specialist)|cita|citas|hora|visita|reservar|pedir hora|"

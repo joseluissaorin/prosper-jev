@@ -412,6 +412,20 @@ INCOMPATIBLE = {"acepta_y_pregunta": {"adversario", "reglas"}, "acepta_con_condi
                 "no_acepte_eso": {"adversario", "reglas", "alta", "triaje"}}
 
 
+def otra_hora(check):
+    """El guion `no_acepte_eso` manda al llamante rechazar lo reservado, pedir OTRA hora y aceptar la siguiente que le
+    ofrezcan. Lo correcto es entonces UNA sola reserva (la primera se retira sin llegar a enviarse), y vale que sea en una
+    hora que NO es la más temprana. El oráculo de siempre solo daba por buena la más temprana, así que marcaba como fallo
+    justo el comportamiento correcto (20-09-2026: era uno de los dos «fallos de siempre» de cada tirada)."""
+    def nuevo(acts):
+        ok, why = check(acts)
+        b = [a for a in acts if a.get("action") == "BOOK"]
+        if len(acts) == 1 and len(b) == 1 and why.startswith("hueco ") and ";" not in why:
+            return True, "ok (una sola reserva, en otra hora: la primera se retiró)"
+        return ok, why
+    return nuevo
+
+
 def pick_behaviors(fam, rng):
     ok = [b for b in BEHAVIORS if fam not in INCOMPATIBLE.get(b, set())]
     n = rng.choices([0, 1, 2, 3], weights=[20, 40, 28, 12])[0]
@@ -458,6 +472,8 @@ def generate(n, seed, only_fam=None, only_beh=None):
         if only_beh:
             bs = sorted(set(bs) | set(only_beh))
         c["behaviors"] = bs
+        if "no_acepte_eso" in bs:
+            c["check"] = otra_hora(c["check"])
         c["channel"] = rng.random() < 0.4 and c["lang"] == "English"
         c["seed"] = rng.randint(0, 10**9)
         c["id"] = f"{fam}-{len(out):03d}"
