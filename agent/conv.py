@@ -2354,7 +2354,22 @@ CLINIC VOCABULARY
         # (decían Cigna y Mapfre; se registró «privado» y «sanitas», que nadie había nombrado) y el arnés lo sacaba también.
         dicho = fold(" ".join(h[8:] for h in self.s.history if h.startswith("Caller:")))
         dicho = re.sub(r"\b([a-z]) (?=[a-z]\b)", r"\1", dicho)             # «d k v» → «dkv»
-        oida, _sc = leer.best_match(dicho, {k: v for k, v in plans.items() if k != "privado"})
+        # palabra a palabra y con el listón alto: comparar con TODO lo dicho en la llamada (nombres, correo deletreado…) hacía
+        # que «adeslas» se pareciera a cualquier cosa y se «corrigiera» una aseguradora bien oída (medido: 8/12 → peor que sin guardia)
+        import difflib
+        toks = set(re.findall(r"[a-z]{3,}", dicho))
+        cand = []
+        for k, v in plans.items():
+            if k == "privado":
+                continue
+            w = fold(v).split()[0]
+            sc_ = max((1.0 if t == w else difflib.SequenceMatcher(None, t, w).ratio() if len(w) >= 5 else 0.0) for t in toks) if toks else 0.0
+            if sc_ >= 0.84:
+                cand.append((sc_, k))
+        cand.sort(reverse=True)
+        oida = cand[0][1] if cand and (len(cand) == 1 or cand[0][0] - cand[1][0] >= 0.1 or cand[0][1] == ins) else None
+        if cand and any(k == ins for _, k in cand):
+            oida = ins                                    # la que propone el planificador SÍ se ha dicho: vale
         sin_seguro = bool(re.search(r"\b(private(ly)?|privad[oa]|no insurance|sin seguro|pay (for it )?myself|de pago|particular|self.?pay|out of pocket|"
                                     r"sense asseguranca|no tengo seguro|don'?t have (any )?insurance)\b", dicho))
         if oida and oida != ins:
