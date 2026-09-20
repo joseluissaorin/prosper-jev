@@ -868,6 +868,8 @@ class Conv:
         act = p.act[0]
         if p.n("says_goodbye", 0.0) >= 0.5 or act in ("backchannel", "unclear", "end_call"):
             return None                                   # despedirse o no haberle entendido no se acusa con un «vale»
+        if len((p.text or "").split()) <= 4 and re.search(r"\b(hola|buenas|buenos dias|hello|hi|good (morning|afternoon|evening)|bon dia|bona tarda)\b", fold(p.text or "")):
+            return None                                   # a un «Hola, buenos días» se le saluda, no se le dice «Muy bien,»
         if p.c("red_flag")[0] not in (None, "none") and p.c("red_flag")[1] >= 0.4:
             return None                                   # una urgencia se atiende, no se comenta
         if p.n("ails", 0.0) >= 0.6 and not self.s.asked.get("_empatia"):

@@ -1,7 +1,16 @@
-# Estado del agente (20-09-2026, 01:20)
+# Estado del agente (20-09-2026, 08:40)
+
+**El marcador está congelado desde las 06:00 con el máximo (172 de 172); Séneca es sexto por la hora del desempate.
+Lo que queda es el jurado: qué ve, cómo se enseña y con qué cifras está en [`docs/jurado.md`](docs/jurado.md).**
 
 Todo corre en el NAS (`pop-os`, por Tailscale: `joseluis@100.107.233.6`) y no depende de ningún portátil. La sesión
 de usuario tiene *linger*, así que los servicios siguen aunque nadie inicie sesión.
+
+Dos avisos que no dependen del código:
+
+- **OpenRouter no tiene saldo** (402 desde la madrugada del 20): el Sistema 2 corre en Gemini (~0,6 s por paso) y no en
+  Groq (~0,35 s). Con saldo, vuelve solo a Groq en menos de una hora (o al reiniciar el agente).
+- **ElevenLabs:** 178.000 de 300.000 caracteres gastados el 20-09 a las 08:35. Una tirada de voz de 12 llamadas gasta ~4.600.
 
 ## Qué hay en marcha
 
@@ -44,7 +53,8 @@ Para verlo: `journalctl --user -u puntuadas -f`. Para pararlo: `systemctl --user
   OpenRouter falla, y al revés si Google vuelve a denegar el proyecto.
 - **Voz:** ElevenLabs (µ-law de 8 kHz directo, primer audio en ~150 ms). **Oído:** Gemini en directo, con Scribe de
   ElevenLabs como alternativa (`EARS=scribe`).
-- **Latencia medida en voz real:** 608-874 ms de mediana del fin de voz a la primera palabra.
+- **Latencia medida en voz real:** 668 ms de mediana del fin de voz a la primera palabra (p90 1,3 s) con diez llamadas a la vez
+  (20-09, 170 turnos, planificador en Gemini).
 - **Réplica local** (`agent/replica.py`, los 77 casos publicados contra la API real sin enviar nada): 26/26 en los
   problemas principales de la última pasada.
 
