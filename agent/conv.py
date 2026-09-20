@@ -1543,6 +1543,9 @@ class Conv:
             return ""
         s.asked["_cita_previa"] = 1
         x = sorted(ap, key=lambda a: a["start_time"])[0]
+        ape = fold(self.prov(x["provider_id"])["name"]).split()[-1]
+        if any(ape in fold(h) and re.search(r"already|ya tiene|ja te\b", fold(h)) for h in s.history if h.startswith("Receptionist:")):
+            return ""                                     # el planificador ya la ha nombrado en esta llamada: dos veces sobra
         self._log("upcoming_mentioned", appointment=x["appointment_id"])
         w, doc = S.when(self.lang3(), parse_slot(x["start_time"])), self.prov(x["provider_id"])["name"]
         return _contraer({"es": f"Veo que ya tiene cita {w} con {doc}. Si es para otra cosa: ",
@@ -2637,6 +2640,16 @@ CLINIC VOCABULARY
                 s.msgs.append(types.Content(role="user", parts=[types.Part(text=f"(System: you have asked for the {campo} {n} times and it is not "
                                                                                 "working. Do not ask for it again: carry on with what you already "
                                                                                 "have, or tell them you will sort it another way.)")]))
+                if not s.patients and campo in ("national_id", "date_of_birth", "name"):
+                    # sin ficha no hay «lo que tengo» con lo que seguir: decirlo dejaba la llamada en un callejón («Don't worry,
+                    # let's carry on» dos veces seguidas, arnés del 20-09). Se dice la verdad y se dan las dos salidas, una vez.
+                    if s.asked.get("_sin_ficha"):
+                        return said
+                    s.asked["_sin_ficha"] = 1
+                    return {"es": "Lo siento, con esos datos no encuentro su ficha. ¿Me dice el teléfono que tenemos registrado? Si no, puedo darle de alta como paciente nuevo.",
+                            "ca": "Ho sento, amb aquestes dades no trobo la seva fitxa. Em diu el telèfon que tenim registrat? Si no, el puc donar d’alta com a pacient nou."}.get(
+                        self.lang3(), "I'm sorry, I can't find your record with those details. Could you give me the phone number we have on file for you? "
+                                      "Otherwise I can register you as a new patient.")
                 return {"es": "No se preocupe, seguimos con lo que tengo.", "ca": "No es preocupi, seguim amb el que tinc."}.get(
                     self.lang3(), "Don't worry, let's carry on with what I have.")
             break
