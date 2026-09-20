@@ -173,7 +173,10 @@ async def llm_step(system: str, msgs: list, tools: list | None, timeout: float =
             _cerrar("or_down")
             return out
         except Exception as e:  # noqa: BLE001
-            _abrir("or_down", CIRCUITO_S, repr(e))   # OpenRouter no responde: se sigue con Gemini y se reintenta al cabo del plazo
+            # OpenRouter no responde: se sigue con Gemini y se reintenta al cabo del plazo. Sin saldo o sin clave (401/402,
+            # pasó el 20-09-2026) no se arregla en un minuto: una hora, para no pagar esa petición fallida en cada llamada
+            sin_saldo = any(x in repr(e) for x in ("402", "401", "Insufficient credits"))
+            _abrir("or_down", 3600.0 if sin_saldo else CIRCUITO_S, repr(e))
     if not _cortado("down"):
         cfg = types.GenerateContentConfig(system_instruction=system, temperature=0.2, max_output_tokens=600,
                                           automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
@@ -1029,7 +1032,7 @@ class Conv:
         said = said2
         if getattr(self, "_said_done", False):
             # la confirmación ya sonó al escribir: no se repite («Done, you're booked…» dos veces)
-            rest = [x for x in re.split(r"(?<=[.!?¡¿])\s+", said) if x and not re.search(
+            rest = [x for x in re.split(r"(?<![Dd]r\.)(?<![Dd]ra\.)(?<![Ss]r\.)(?<![Ss]ra\.)(?<=[.!?])\s+", said) if x and not re.search(
                 r"\b(done|booked|you'?re (all )?set|moved|cancel+ed|registered|hecho|listo|reservad|queda|anulad|cambiad|fet)\b", fold(x))]
             said = " ".join(rest) or {"es": "¿Algo más?", "ca": "Alguna cosa més?"}.get(self.lang3(), "Anything else?")
         if s.said_filler:
