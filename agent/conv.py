@@ -320,6 +320,7 @@ class St2:
     last_block: str | None = None
     seen_rules: list = field(default_factory=list)    # reglas que la API devolvió de verdad (las únicas declarables)
     for_other: bool = False                           # la cita es para otra persona, no para quien llama
+    pendientes: list = field(default_factory=list)    # escrituras hechas pero aún NO enviadas (ver `submit`)
     offer_pushed: bool = False                        # ya se le ha dicho una vez que no se rinda con una oferta abierta
     bye_pushed: bool = False                          # ya se le ha dicho una vez que no cuelgue sin saber a qué llamaban
     oos_seen: str | None = None                       # Jev vio en algún turno algo que hay que declinar (ventas, datos de otro…)
@@ -562,6 +563,8 @@ class Conv:
             "for_other": noul("Is the appointment for someone other than the caller (their child, parent, grandchild, partner, or someone they care for)?"),
             "ails": noul("Does the caller mention a symptom, pain, injury, illness or health worry (theirs or the patient's)?"),
             "names_doctor_or_site": noul("Does the caller ask for a specific doctor by name, a specific clinic site, or the nearest site to an address?"),
+            "repudiates": noul("Does `caller` say that what the receptionist just did or just read back is NOT what they agreed to or not "
+                               "what they wanted (e.g. 'no, I didn't agree to that', 'that's not the time I said', 'no, not that one')?"),
             "says_goodbye": noul("Does `caller` say goodbye, thank-you-and-bye, or that they need nothing else?"),
             # el transcriptor destroza los nombres propios por teléfono («Arenal Sur» → «Arenal, sir»): Jev los
             # empareja por sonido contra los que existen de verdad, y el planificador recibe el id bueno
@@ -817,6 +820,12 @@ class Conv:
             return out + [{"kind": "say", "text": text_out, "act": "emergency"}]
         if p.n("wants_register") >= 0.6:
             s.wants_register = True
+        # lo escrito en el turno anterior estaba a la espera: ahora que se ha oído la reacción, se retira o se manda
+        if s.pendientes:
+            if p.n("repudiates") >= 0.6 or (p.act[0] == "reject" and p.act[1] >= 0.8 and p.n("accepts") < 0.3):
+                out += self.drop_writes(f"repudia lo hecho ({p.n('repudiates'):.2f})")
+            else:
+                out += await self.flush_writes()
         oo, oc = p.c("oos")
         if oo and oo != "none" and oc >= 0.5:
             s.oos_seen = oo
@@ -2340,21 +2349,58 @@ CLINIC VOCABULARY
             return {"status": "dry"}
         if any(x["route"] == action and x["body"] == full for x in s.submitted):
             return {"status": 409}
-        entry = {"route": action, "body": full, "action": action.upper().replace("-", "_"), "t": round(time.time() - s.started, 2)}
-        try:
-            r = await API.submit(action, full) if SUBMIT else {"status": "skipped"}
-            entry["status"] = r.get("status")
-        except ApiError as e:
-            entry["status"], entry["error"] = e.status, e.body[:200]
+        entry = {"route": action, "body": full, "action": action.upper().replace("-", "_"), "t": round(time.time() - s.started, 2),
+                 "status": "pendiente"}
+        # NO se envía todavía: se envía en el turno siguiente, cuando ya se sabe cómo ha reaccionado quien llama.
+        # El marcador compara la LISTA entera de acciones, y una reserva mal oída no se puede retirar una vez
+        # enviada. Medido en dos rondas puntuadas (`noise` y `no_slot_free`): el «no, yo no acepté esa hora» llega
+        # 18-20 s después, siempre en el turno siguiente. Con la escritura a un turno vista, esa corrección llega a
+        # tiempo y la reserva equivocada no sale nunca. Si la llamada se corta antes, `finalize()` la envía igual.
         s.submitted.append(entry)
-        self.gate("envío", entry.get("status") in (200, 409, "skipped"), f"{action} {json.dumps(body, ensure_ascii=False)[:160]} → {entry.get('status')}")
+        s.pendientes.append(entry)
+        self.gate("escritura", True, f"{action} {json.dumps(body, ensure_ascii=False)[:150]} · se envía tras oír la reacción")
         return entry
 
-    async def finalize(self) -> list[dict]:
-        """Al colgar: si no se escribió nada, la negativa guardada (o la regla que bloqueó); nunca silencio."""
+    async def flush_writes(self, why: str = "") -> list[dict]:
+        """Manda de verdad lo que estaba a la espera."""
+        s, out = self.s, []
+        while s.pendientes:
+            entry = s.pendientes.pop(0)
+            try:
+                r = await API.submit(entry["route"], entry["body"]) if SUBMIT else {"status": "skipped"}
+                entry["status"] = r.get("status")
+            except ApiError as e:
+                entry["status"], entry["error"] = e.status, e.body[:200]
+            out.append(self.gate("envío", entry.get("status") in (200, 409, "skipped"),
+                                 f"{entry['route']} → {entry.get('status')}" + (f" ({why})" if why else "")))
+        return out
+
+    def drop_writes(self, why: str) -> list[dict]:
+        """Quien llama dice que eso no era: como aún no había salido, se borra y no llega al marcador."""
         s = self.s
-        if self._dry or s.submitted:
+        if not s.pendientes:
             return []
+        fuera = list(s.pendientes)
+        s.pendientes.clear()
+        for e in fuera:
+            if e in s.submitted:
+                s.submitted.remove(e)
+            if e["route"] in ("book", "reschedule"):
+                for k, o in s.offers.items():                 # la oferta vuelve a estar sobre la mesa
+                    if o.get("status") in ("booked", "moved") and o["slot"]["start_time"] == e["body"].get("slot"):
+                        o["status"] = "rejected"
+                s.booked = [b for b in getattr(s, "booked", []) if b[0] != e["body"].get("patient_id")]
+        return [self._log("escritura_retirada", acciones=[e["action"] for e in fuera], why=why)]
+
+    async def finalize(self) -> list[dict]:
+        """Al colgar: se manda lo que quedara a la espera y, si no se escribió nada, la negativa guardada (o la
+        regla que bloqueó); nunca silencio."""
+        s = self.s
+        if self._dry:
+            return []
+        out = await self.flush_writes("al colgar") if s.pendientes else []
+        if s.submitted:
+            return out + [self._log("declared", actions=[x["action"] for x in s.submitted])]
         p = self._p
         pk = p.c("picks") if p is not None and "picks" in p.raw else (None, 0.0)
         picked = pk[0] in s.offers and pk[1] >= 0.8        # «none» con mucha confianza es lo contrario de elegir
@@ -2374,7 +2420,8 @@ CLINIC VOCABULARY
                                            "appointment_type_id": x["appointment_type_id"], "slot": x["start_time"], "policy_id": o["policy_id"]})
         else:
             await self.submit("no-action", {"reason": self.reason_for(s.decline or s.last_block or s.decline_blocked or "out_of_scope")})
-        return [self._log("declared", actions=[x["action"] for x in s.submitted])]
+        out += await self.flush_writes("al colgar")        # lo que acaba de decidirse aquí sale ya, sin esperar turno
+        return out + [self._log("declared", actions=[x["action"] for x in s.submitted])]
 
     async def goodbye(self) -> list[dict]:
         self.s.ended = True
