@@ -136,14 +136,14 @@ Voz: ElevenLabs (µ-law de 8 kHz directo, primer audio en ~150 ms). Oído: Gemin
 - **Arena**: `https://prosper.joseluissaorin.com` sirve exactamente lo que hay en `arena/`.
 - **Guiones fijos** (`agent/guion.py`): cinco llamadas de guion contra la clínica real, solo lectura, para enseñar el trato por ficha.
 
-## Honestidad brutal: lo que queda
+## Límites conocidos
 
-Dos defectos vistos en rondas puntuadas que el arnés de texto no reproduce, diagnosticados con su traza y sin arreglo enviado —el motivo es el mismo: **el arnés no los produce**, así que cualquier guardia solo se puede medir por lo que estorba:
+Dos defectos vistos en rondas puntuadas, diagnosticados con su traza y pendientes de un rediseño —el arnés de texto no los reproduce, así que cualquier remedio parcial solo se puede medir por lo que estorba:
 
-1. **Reserva doble.** El transcriptor oye «Play That One», Jev lo da por confirmación, se reserva una cita no aceptada y ante la protesta se reserva otra en vez de sustituirla. Dos `BOOK` donde se esperaba uno: cero. Apretar la puerta baja el defecto pero no sube el acierto. Pide escritura en dos fases de verdad —sustituir una reserva hecha en la misma llamada—, no un guardia más. Trabajo de diseño, no de madrugada.
-2. **Colgar tras contestar una pregunta.** Dice bien el horario, oye «Right, thanks» y cuelga sin preguntar si necesita algo más. Candidato: exigir más `says_goodbye` para colgar sin gestión —sin medir, con riesgo de no colgar nunca.
+1. **Reserva doble.** El transcriptor oye «Play That One», Jev lo toma por confirmación y se reserva una cita no aceptada; ante la protesta, se reserva otra en vez de sustituir la primera. Endurecer la puerta reduce el defecto sin subir el acierto. La solución es una escritura en dos fases de verdad —poder sustituir una reserva hecha en la misma llamada—, no un guardia más.
+2. **Cierre prematuro.** Tras contestar bien una pregunta («Right, thanks»), el agente cuelga sin ofrecer nada más. La vía es exigir más evidencia de despedida antes de colgar sin gestión, aún sin calibrar.
 
-Y dos avisos que no dependen del código: OpenRouter sin saldo (el Sistema 2 corre en Gemini hasta recargar) y el gasto de ElevenLabs (178.000 de 300.000 caracteres el 20-09).
+Detalle completo en `ESTADO.md` y `docs/modos-de-fallo.md`.
 
 ---
 
