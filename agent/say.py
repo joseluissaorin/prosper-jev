@@ -14,14 +14,23 @@ MO = {"en": ["January", "February", "March", "April", "May", "June", "July", "Au
 
 
 def when(lang: str, dt: datetime) -> str:
+    """«mañana, lunes 21 de septiembre, a las 8:00»: si es mañana, se dice. Quien pide «algo para mañana» y oye «el lunes 21»
+    no siempre cae en que es lo mismo (arnés del 20-09: la persona rechazaba la primera hora creyendo que no era mañana)."""
     h = f"{dt.hour}:{dt.minute:02d}"
+    try:
+        man = (dt.date() - datetime.now(dt.tzinfo).date()).days == 1
+    except Exception:  # noqa: BLE001
+        man = False
     if lang == "es":
-        return f"el {WD['es'][dt.weekday()]} {dt.day} de {MO['es'][dt.month - 1]} a las {h}"
+        dia = f"{WD['es'][dt.weekday()]} {dt.day} de {MO['es'][dt.month - 1]}"
+        return f"mañana, {dia}, a las {h}" if man else f"el {dia} a las {h}"
     if lang == "ca":
         m = MO["ca"][dt.month - 1]
-        return f"{WD['ca'][dt.weekday()]} {dt.day} {'d’' if m[0] in 'aeiou' else 'de '}{m} a les {h}"
+        dia = f"{WD['ca'][dt.weekday()]} {dt.day} {'d’' if m[0] in 'aeiou' else 'de '}{m}"
+        return f"demà, {dia}, a les {h}" if man else f"{dia} a les {h}"
     ampm = f"{dt.hour % 12 or 12}{':' + f'{dt.minute:02d}' if dt.minute else ''} {'am' if dt.hour < 12 else 'pm'}"
-    return f"{WD['en'][dt.weekday()]} the {_ord(dt.day)} of {MO['en'][dt.month - 1]} at {ampm}"
+    dia = f"{WD['en'][dt.weekday()]} the {_ord(dt.day)} of {MO['en'][dt.month - 1]}"
+    return f"tomorrow, {dia}, at {ampm}" if man else f"{dia} at {ampm}"
 
 
 _H_ES = ["doce", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once"]

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="Esta clínica contesta siempre. Recepción verificada por Dígame: nota 8,3 en su examen público.">
+  <defs><path id="c" d="M120,120 m-92,0 a92,92 0 1,1 184,0 a92,92 0 1,1 -184,0"/></defs>
+  <circle cx="120" cy="120" r="116" fill="#F4F1EA" stroke="#1F3A8A" stroke-width="4"/>
+  <circle cx="120" cy="120" r="106" fill="none" stroke="#1F3A8A" stroke-width="1.2"/>
+  <circle cx="120" cy="120" r="72" fill="none" stroke="#1F3A8A" stroke-width="1.2" stroke-dasharray="3 4"/>
+  <text font-family="ui-monospace, Menlo, Consolas, monospace" font-size="13.4" letter-spacing="3.1" fill="#1F3A8A"><textPath href="#c" startOffset="0">ESTA CLÍNICA CONTESTA SIEMPRE · RECEPCIÓN VERIFICADA · DÍGAME ·</textPath></text>
+  <text x="120" y="138" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-style="italic" font-size="68" fill="#C8321C" letter-spacing="-3">8,3</text>
+  <text x="120" y="160" text-anchor="middle" font-family="ui-monospace, Menlo, Consolas, monospace" font-size="9.5" letter-spacing="2" fill="#1A1A1A">NOTA DEL EXAMEN</text>
+  <text x="120" y="88" text-anchor="middle" font-family="Georgia, serif" font-style="italic" font-size="20" fill="#1A1A1A">¿Dígame?</text>
+</svg>

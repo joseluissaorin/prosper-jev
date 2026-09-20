@@ -1,0 +1,162 @@
+{
+ "dias": [
+  {
+   "fecha": "2026-09-20",
+   "titulo": "Parte del domingo 20 de septiembre",
+   "parrafos": [
+    {
+     "texto": "El domingo 20 cogí 360 llamadas: 180 acabaron en cita nueva, 10 en cambios de cita, 11 en anulaciones y 4 en altas de pacientes nuevos. En total, 204 llamadas terminaron con algo escrito en la agenda, y la llamada mediana duró 50 segundos.",
+     "evidencia": [
+      "CA58d2e0e1d9134ba5980b3da75860bafa",
+      "CA3d4598fdb21d495e9f1dd3fd189132f5",
+      "CA90102f955cc1421ea561ca463b3733c9"
+     ]
+    },
+    {
+     "texto": "No pude dar lo que pedían en 59 llamadas: en 17, no había hueco en lo que pedían (13 de medicina general, 1 de ginecología y 1 de traumatología); en 13, el seguro no cubría la especialidad; en 7, hacía falta un volante que no consta en la ficha; en 6, el cupo de visitas del seguro estaba agotado; en 5, la persona no aparecía en el directorio; en 5, pedían un médico que no es de la casa; en 4, el seguro no cubría esa sede; en 1, ese médico no trabaja con su seguro; en 1, la clínica cierra ese día. En ninguna escribí nada en la agenda, y lo expliqué antes de despedirme.",
+     "evidencia": [
+      "CA59ee892e05a54a1b9c071e19ffb106a3",
+      "CA19b11c502dc048deb9881cc44f755700",
+      "CA8e1812599a6347109df71ba2bf7e1ba4"
+     ]
+    },
+    {
+     "texto": "Hubo 7 llamadas con señales de urgencia (síntomas de ictus). En todas dije que llamaran al 112 de inmediato y no reservé nada: una cita no es la respuesta a una urgencia.",
+     "evidencia": [
+      "CAe016f61db80a493cb5ab9a5b8cccf152",
+      "CAdc43da4d50474672b448c3b2b11d5c83",
+      "CA3097186cde814fc88137ed55e27123ef"
+     ]
+    },
+    {
+     "texto": "En 27 llamadas me pidieron algo que no me corresponde: 7 eran llamadas comerciales, 6 intentaron darme órdenes para saltarme las normas, 6 pidieron datos de otra persona, 6 querían consejo médico y 2 hablaban de algo ajeno a la clínica. Lo decliné siempre con educación y sin leer la ficha de nadie.",
+     "evidencia": [
+      "CA20348b443f7343ffb48f088d02527efe",
+      "CA524456fd8ad842a6a3aad3fb8d07c16b",
+      "CA3a89e69136d84be3ab65053873de4a90"
+     ]
+    },
+    {
+     "texto": "Atendí 337 en inglés, 12 en castellano y 11 en catalán. En 2 llamadas cambié de idioma a mitad de conversación porque así lo hizo quien llamaba.",
+     "evidencia": [
+      "CAa6af68e002054596b876aaa37ed53a6e",
+      "CA52268ab1512d450e9306352d29b605c3",
+      "CAdd9a82893f684f478eadd23189cb53a8"
+     ]
+    },
+    {
+     "texto": "Dudé 16 veces antes de escribir: la oferta estaba leída, pero el «sí» no me pareció lo bastante claro, así que volví a preguntar (3 de esas llamadas acabaron con la gestión hecha igualmente). El planificador se inventó 78 datos que nadie había dicho (56 fechas de nacimiento, 10 DNI, 6 teléfonos y 4 direcciones) y el núcleo los tiró todos antes de que tocaran la agenda.",
+     "evidencia": [
+      "CA7a201f9bfd524effb1fd76274d4f401a",
+      "CA5f4d7a823bbb4e82ba533dde641d2cec",
+      "CA2c9dd892d3aa4cdeb6945cc5b7547223"
+     ]
+    },
+    {
+     "texto": "En cuanto a la velocidad, Jev juzgó cada turno en 368 ms de mediana, y en el 58,7 % de los turnos del cerebro nuevo la respuesta ya estaba pensada antes de que la persona terminara de hablar.",
+     "evidencia": [
+      "CAac365e6db53e4751a966e06454828675",
+      "CA8c9c323e4cfe4f408ffe4e3459e2e4f8"
+     ]
+    }
+   ],
+   "cifras": {
+    "llamadas": 360,
+    "gestiones": 204,
+    "citas": 180,
+    "cambios": 10,
+    "anulaciones": 11,
+    "altas": 4,
+    "urgencias": 7,
+    "declinadas": 27,
+    "sin_hueco": 17,
+    "idiomas": {
+     "en": 337,
+     "es": 12,
+     "ca": 11
+    },
+    "mediana_jev_ms": 368,
+    "especulacion_pct": 58.7
+   }
+  },
+  {
+   "fecha": "2026-09-19",
+   "titulo": "Parte del sábado 19 de septiembre",
+   "parrafos": [
+    {
+     "texto": "El sábado 19 cogí 602 llamadas: 318 acabaron en cita nueva, 15 en cambios de cita, 17 en anulaciones y 22 en altas de pacientes nuevos. En total, 372 llamadas terminaron con algo escrito en la agenda, y la llamada mediana duró 59 segundos.",
+     "evidencia": [
+      "CAd877f6449f324cf592cb18eaab389c0b",
+      "CAb67a675a26154b55a27357c09ac5d167",
+      "CA51d2eb2963e84f36852c25a9003351ec"
+     ]
+    },
+    {
+     "texto": "No pude dar lo que pedían en 82 llamadas: en 18, el seguro no cubría la especialidad; en 16, pedían un médico que no es de la casa; en 10, hacía falta un volante que no consta en la ficha; en 9, el cupo de visitas del seguro estaba agotado; en 9, el médico pedido está de baja y no quisieron otro; en 7, el seguro no cubría esa sede; en 5, la persona no aparecía en el directorio; en 5, ese médico no trabaja con su seguro; en 3, no había hueco en lo que pedían (2 de medicina general y 1 de ginecología). En ninguna escribí nada en la agenda, y lo expliqué antes de despedirme.",
+     "evidencia": [
+      "CA838445ad594a4068a8ae78b920696f6d",
+      "CA82d782af6a52414e8e9fa7845bab6f59",
+      "CA9dbda9afb236483cb3bae95ada183e23"
+     ]
+    },
+    {
+     "texto": "Hubo 9 llamadas con señales de urgencia (síntomas de ictus). En todas dije que llamaran al 112 de inmediato y no reservé nada: una cita no es la respuesta a una urgencia.",
+     "evidencia": [
+      "CAad0586b880c74083ae119d3fdf7d1ae5",
+      "CA33beb28377aa4e37ab1dbcf2f8fc5d43",
+      "CA1415b722091a47339b95a39d286ad85b"
+     ]
+    },
+    {
+     "texto": "En 42 llamadas me pidieron algo que no me corresponde: 9 eran llamadas comerciales, 9 intentaron darme órdenes para saltarme las normas, 9 pidieron datos de otra persona, 8 querían consejo médico y 7 hablaban de algo ajeno a la clínica. Lo decliné siempre con educación y sin leer la ficha de nadie.",
+     "evidencia": [
+      "CA1b7cf605f12147cc8846d516b7facc30",
+      "CAb6eced86e1c845cc83d186117967a2c6",
+      "CA0ec6169c81354d41b3214f9bd9452bc8"
+     ]
+    },
+    {
+     "texto": "Atendí 572 en inglés, 18 en catalán y 12 en castellano. En 2 llamadas cambié de idioma a mitad de conversación porque así lo hizo quien llamaba.",
+     "evidencia": [
+      "CA169876ef0e2442048095a3744a924f3a",
+      "CA176a56045e9e451db71d66aa2493ec54",
+      "CA4b211de36f1c4d3e83e2481f91b8f436"
+     ]
+    },
+    {
+     "texto": "Dudé 2 veces antes de escribir: la oferta estaba leída, pero el «sí» no me pareció lo bastante claro, así que volví a preguntar. El planificador se inventó 8 datos que nadie había dicho (8 fechas de nacimiento) y el núcleo los tiró todos antes de que tocaran la agenda.",
+     "evidencia": [
+      "CA886bca217fe84ffd902fa64be8c8f2a0",
+      "CA6499b746448244deb892d68f0e54f452",
+      "CAbc3f239980d541bab0d19fdb0e9c94f3"
+     ]
+    },
+    {
+     "texto": "En cuanto a la velocidad, Jev juzgó cada turno en 317 ms de mediana, y en el 58,3 % de los turnos del cerebro nuevo la respuesta ya estaba pensada antes de que la persona terminara de hablar.",
+     "evidencia": [
+      "CAd877f6449f324cf592cb18eaab389c0b",
+      "CA8b48b87f06984015a72e6c695dbd89a3"
+     ]
+    }
+   ],
+   "cifras": {
+    "llamadas": 602,
+    "gestiones": 372,
+    "citas": 318,
+    "cambios": 15,
+    "anulaciones": 17,
+    "altas": 22,
+    "urgencias": 9,
+    "declinadas": 42,
+    "sin_hueco": 3,
+    "idiomas": {
+     "en": 572,
+     "ca": 18,
+     "es": 12
+    },
+    "mediana_jev_ms": 317,
+    "especulacion_pct": 58.3
+   }
+  }
+ ]
+}

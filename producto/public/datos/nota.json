@@ -1,0 +1,924 @@
+{
+ "nota": 8.3,
+ "casos": 3118,
+ "bien": 2573,
+ "pasadas": 78,
+ "por_familia": [
+  {
+   "familia": "tercero",
+   "nombre": "Llaman por otra persona",
+   "casos": 528,
+   "bien": 457
+  },
+  {
+   "familia": "fechas",
+   "nombre": "Piden un día o una hora concretos",
+   "casos": 423,
+   "bien": 360
+  },
+  {
+   "familia": "medico_sede",
+   "nombre": "Piden un médico o una sede",
+   "casos": 415,
+   "bien": 363
+  },
+  {
+   "familia": "simple",
+   "nombre": "Una cita, sin más",
+   "casos": 396,
+   "bien": 313
+  },
+  {
+   "familia": "preguntas",
+   "nombre": "Preguntan por la clínica",
+   "casos": 279,
+   "bien": 180
+  },
+  {
+   "familia": "reglas",
+   "nombre": "Chocan con una regla de la casa",
+   "casos": 259,
+   "bien": 219
+  },
+  {
+   "familia": "triaje",
+   "nombre": "No saben qué médico necesitan",
+   "casos": 246,
+   "bien": 187
+  },
+  {
+   "familia": "cambiar",
+   "nombre": "Cambian o anulan una cita",
+   "casos": 236,
+   "bien": 217
+  },
+  {
+   "familia": "alta",
+   "nombre": "Pacientes nuevos",
+   "casos": 138,
+   "bien": 107
+  },
+  {
+   "familia": "adversario",
+   "nombre": "Intentan engañarla",
+   "casos": 101,
+   "bien": 101
+  },
+  {
+   "familia": "idiomas",
+   "nombre": "Hablan otro idioma",
+   "casos": 97,
+   "bien": 69
+  }
+ ],
+ "por_comportamiento": [
+  {
+   "comportamiento": "charla_al_final",
+   "nombre": "Se enrolla al final",
+   "casos": 328,
+   "bien": 277
+  },
+  {
+   "comportamiento": "a_trozos",
+   "nombre": "Habla a trozos",
+   "casos": 316,
+   "bien": 265
+  },
+  {
+   "comportamiento": "sigue_ahi",
+   "nombre": "Pregunta si sigue ahí",
+   "casos": 303,
+   "bien": 253
+  },
+  {
+   "comportamiento": "escueto",
+   "nombre": "Contesta con monosílabos",
+   "casos": 303,
+   "bien": 253
+  },
+  {
+   "comportamiento": "mezcla_idiomas",
+   "nombre": "Mezcla idiomas",
+   "casos": 294,
+   "bien": 226
+  },
+  {
+   "comportamiento": "se_corrige",
+   "nombre": "Se corrige a mitad de frase",
+   "casos": 294,
+   "bien": 227
+  },
+  {
+   "comportamiento": "acepta_y_pregunta",
+   "nombre": "Acepta y pregunta a la vez",
+   "casos": 292,
+   "bien": 219
+  },
+  {
+   "comportamiento": "pregunta_primero",
+   "nombre": "Pregunta antes de pedir",
+   "casos": 283,
+   "bien": 252
+  },
+  {
+   "comportamiento": "titubea",
+   "nombre": "Titubea",
+   "casos": 276,
+   "bien": 210
+  },
+  {
+   "comportamiento": "saluda_y_espera",
+   "nombre": "Saluda y espera",
+   "casos": 257,
+   "bien": 227
+  },
+  {
+   "comportamiento": "comprueba_tras_aceptar",
+   "nombre": "Comprueba tras aceptar",
+   "casos": 256,
+   "bien": 209
+  },
+  {
+   "comportamiento": "todo_de_golpe",
+   "nombre": "Lo dice todo de golpe",
+   "casos": 217,
+   "bien": 178
+  },
+  {
+   "comportamiento": "pregunta_por_la_oferta",
+   "nombre": "Pregunta por la oferta",
+   "casos": 203,
+   "bien": 182
+  },
+  {
+   "comportamiento": "reformula",
+   "nombre": "Reformula lo que pide",
+   "casos": 193,
+   "bien": 156
+  },
+  {
+   "comportamiento": "acepta_con_condicion",
+   "nombre": "Acepta con una condición",
+   "casos": 158,
+   "bien": 127
+  },
+  {
+   "comportamiento": "se_identifica_a_si_mismo",
+   "nombre": "Se identifica sin que se lo pidan",
+   "casos": 98,
+   "bien": 83
+  },
+  {
+   "comportamiento": "no_acepte_eso",
+   "nombre": "Niega haber aceptado",
+   "casos": 84,
+   "bien": 10
+  },
+  {
+   "comportamiento": "pregunta_y_gracias_seco",
+   "nombre": "Pregunta y da las gracias a secas",
+   "casos": 62,
+   "bien": 29
+  },
+  {
+   "comportamiento": "pide_que_repita_tras_reservar",
+   "nombre": "Pide que repita tras reservar",
+   "casos": 42,
+   "bien": 33
+  }
+ ],
+ "reparto": [
+  {
+   "persona": "18-39 years old",
+   "nombre": "una persona joven (de 18 a 39 años)",
+   "casos": 771,
+   "bien": 641
+  },
+  {
+   "persona": "40-64 years old",
+   "nombre": "una persona adulta (de 40 a 64 años)",
+   "casos": 760,
+   "bien": 600
+  },
+  {
+   "persona": "65+ years old",
+   "nombre": "una persona mayor (65 años o más)",
+   "casos": 684,
+   "bien": 545
+  },
+  {
+   "persona": "calling for your child",
+   "nombre": "una madre o un padre que llama por su hijo",
+   "casos": 613,
+   "bien": 528
+  },
+  {
+   "persona": "not a patient yet",
+   "nombre": "alguien que aún no es paciente",
+   "casos": 138,
+   "bien": 107
+  },
+  {
+   "persona": "a pushy caller",
+   "nombre": "alguien insistente",
+   "casos": 52,
+   "bien": 52
+  },
+  {
+   "persona": "an anxious caller",
+   "nombre": "alguien con ansiedad",
+   "casos": 45,
+   "bien": 45
+  },
+  {
+   "persona": "a prankster",
+   "nombre": "un bromista",
+   "casos": 36,
+   "bien": 36
+  },
+  {
+   "persona": "a smooth talker",
+   "nombre": "un embaucador",
+   "casos": 13,
+   "bien": 13
+  },
+  {
+   "persona": "a worried caller",
+   "nombre": "alguien preocupado",
+   "casos": 6,
+   "bien": 6
+  }
+ ],
+ "suspensos": [
+  {
+   "id": "cambiar-011",
+   "familia": "cambiar",
+   "objetivo": "Move your general practice appointment with Dr. Andrés Sáez to the earliest slot this coming Monday morning with the same doctor (if nothing then, the earliest after that).",
+   "por_que": "falta RESCHEDULE {'appointment_id': 'A00027', 'slot': {'lunes 21 de septiembre, 8:00'}} en [('NO_ACTION', None, None)]",
+   "turnos": [
+    {
+     "dijo": "Hello, good morning. I have an appointment with Dr. Andrés Sáez on October seventh, but I was hoping I could move it to this coming Monday morning, if possible?",
+     "agente": "Could I have your full name and your DNI or date of birth?"
+    },
+    {
+     "dijo": "Yes, of course. My name is Rafael Moreno Domínguez. My date of birth is September fourteenth, nineteen ninety-four... no, sorry, nineteen ninety-three.",
+     "agente": "Could you read me the DNI or NIE slowly, digit by digit, with the letter at the end?"
+    },
+    {
+     "dijo": "Actually, I don't have my DNI number on me right now, I don't know it by heart. Is my name and date of birth enough to find me in the system?",
+     "agente": "I am sorry, but without a DNI or NIE, I cannot access your patient file. If you have it handy later, please call us back and we will be glad to help you. Goodbye!"
+    },
+    {
+     "dijo": "Oh, I see. I don't have it with me, so I guess I'll have to call back later. Thank you anyway. Goodbye!",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  },
+  {
+   "id": "fechas-012",
+   "familia": "fechas",
+   "objetivo": "Book a someone for my skin appointment this coming Wednesday in the morning. If there is nothing then (or the clinic is closed), take the earliest one after that in the morning.",
+   "por_que": "se esperaba un BOOK y se enviaron ['NO_ACTION']",
+   "turnos": [
+    {
+     "dijo": "Good morning. I'd like to book a skin appointment for this coming Wednesday in the morning, please.",
+     "agente": "Could I please have your full name and your DNI or date of birth?"
+    },
+    {
+     "dijo": "My name is Diego Martín Soto, and my date of birth is December fifth, two thousand and one.",
+     "agente": "Could you read me the DNI or NIE slowly, digit by digit, with the letter at the end?"
+    },
+    {
+     "dijo": "I actually don't have my DNI with me right now, so I don't know it. Is my date of birth enough to book the appointment?",
+     "agente": "Sorry, could you say that again?"
+    },
+    {
+     "dijo": "I don't have my DNI with me right now, so I don't know the number. Is my date of birth enough to book the appointment?",
+     "agente": "Is there anything else I can help you with today?"
+    },
+    {
+     "dijo": "I just need to book that skin appointment for this coming Wednesday morning, or the earliest morning slot after that if Wednesday isn't available. Can we do that with my name and date of birth?",
+     "agente": "Is there anything else I can help you with?"
+    },
+    {
+     "dijo": "I just want to book the skin appointment. Is there a morning slot available this Wednesday, or the next earliest morning after that?",
+     "agente": "Is there anything else I can help you with today?"
+    },
+    {
+     "dijo": "I really just need to book the skin appointment I mentioned. Are you able to check the schedule for this Wednesday morning?",
+     "agente": "Is there anything else I can help you with?"
+    },
+    {
+     "dijo": "No, nothing else. Since we can't seem to book the appointment today, is there parking available at the clinic for when I do come?",
+     "agente": "Goodbye!"
+    }
+   ]
+  },
+  {
+   "id": "fechas-030",
+   "familia": "fechas",
+   "objetivo": "Book a a general practitioner appointment this coming Tuesday. If there is nothing then (or the clinic is closed), take the earliest one after that.",
+   "por_que": "se esperaba un BOOK y se enviaron ['NO_ACTION']",
+   "turnos": [
+    {
+     "dijo": "Hello, good morning. I would like to book an appointment with a general practitioner for this coming Tuesday, please.",
+     "agente": "Could I have your full name, along with your DNI or date of birth?"
+    },
+    {
+     "dijo": "My name is Thomas Popescu Rubio.",
+     "agente": "Could you read me the DNI or NIE slowly, digit by digit, with the letter at the end?"
+    },
+    {
+     "dijo": "I don't have my ID number with me right now, but I can give you my date of birth. It is June twenty-seventh, two thousand and two.",
+     "agente": "Don't worry, let's carry on with what I have."
+    },
+    {
+     "dijo": "Okay, perfect. Do you have any appointments available with a general practitioner for this coming Tuesday?",
+     "agente": "Don't worry, let's carry on with what I have."
+    },
+    {
+     "dijo": "Hello? So is it booked?",
+     "agente": "I am sorry, but we were unable to book the appointment without your identification details. If you have any other questions, please let me know."
+    },
+    {
+     "dijo": "Oh, I see. I don't know my ID number at the moment, so I guess I cannot book it. Thank you anyway. Goodbye.",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  },
+  {
+   "id": "preguntas-021",
+   "familia": "preguntas",
+   "objetivo": "First ask where Arenal Sur is (just out of curiosity: the answer does not change what you want). Then: Book the earliest a GP appointment.",
+   "por_que": "se esperaba un BOOK y se enviaron ['NO_ACTION']",
+   "turnos": [
+    {
+     "dijo": "Hi, good morning! Before I book anything, I was just curious—could you tell me where Arenal Sur is located?",
+     "agente": "Arenal Sur is located at Calle de Madrid 20 in Getafe. It is open Monday to Thursday from eight in the morning to eight in the evening, and on Fridays from eight to two. Is there anything else I can help you with?"
+    },
+    {
+     "dijo": "Ah, perfect, thank you! Yes, I'd like to book the earliest possible appointment with a GP, please.",
+     "agente": "Could I please have the patient's full name, and their DNI, NIE, or date of birth?"
+    },
+    {
+     "dijo": "My name is Diego Martín Soto, and my date of birth is the fifteenth of December, nineteen ninety-eight.",
+     "agente": "The patient's plan is not valid at that site. Do you have any other insurance I could use?"
+    },
+    {
+     "dijo": "Oh, I don't have any other insurance, I'm afraid. I don't know of any other one on my file. Is there no way to book the appointment under my current plan, or is there another site we could use?",
+     "agente": "Unfortunately, your plan is not covered at Arenal Sur. Is there anything else I can help you with?"
+    },
+    {
+     "dijo": "Oh, I see. In that case, I won't be able to book the appointment today. Thank you for your help anyway. Goodbye!",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  },
+  {
+   "id": "reglas-015",
+   "familia": "reglas",
+   "objetivo": "Book physiotherapy. You have no other insurance than Nueva Mutua and no referral. If it can't be done, accept that and say goodbye.",
+   "por_que": "se esperaba NO_ACTION(referral_required) y se envió [('NO_ACTION', 'patient_not_found')]",
+   "turnos": [
+    {
+     "dijo": "Hi, good afternoon.",
+     "agente": "Good afternoon. How can I help you today?"
+    },
+    {
+     "dijo": "I would like to book an appointment for physiotherapy, please.",
+     "agente": "Could I also have their DNI or NIE, or their date of birth?"
+    },
+    {
+     "dijo": "My name is Álvaro Romero Popescu.",
+     "agente": "Could you read me the DNI or NIE slowly, digit by digit, with the letter at the end?"
+    },
+    {
+     "dijo": "I don't have my DNI card with me right now, but I can give you my date of birth. It is the eighth of May, nineteen forty-six.",
+     "agente": "Don't worry, let's carry on with what I have."
+    },
+    {
+     "dijo": "Thank you. Can we book the physiotherapy session now?",
+     "agente": "Could I have a phone number or email so we can complete your registration?"
+    },
+    {
+     "dijo": "I don't have an email address, but my phone number is six five five, nine eight seven, three two one.",
+     "agente": "Don't worry, let's carry on with what I have."
+    },
+    {
+     "dijo": "Thank you. I have insurance with Nueva Mutua, and I do not have a referral from a doctor. Can we schedule the appointment?",
+     "agente": "Is there anything else I can help you with today?"
+    },
+    {
+     "dijo": "No, that was all. Since we cannot book the appointment, I will say goodbye. Thank you for your time. Goodbye.",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  },
+  {
+   "id": "simple-009",
+   "familia": "simple",
+   "objetivo": "Book the earliest a general practitioner appointment.",
+   "por_que": "se esperaba un BOOK y se enviaron ['NO_ACTION']",
+   "turnos": [
+    {
+     "dijo": "Hello, good morning! Could you tell me what time your clinic closes on Fridays? Also, I would like to book the earliest possible appointment with a general practitioner, please. My name is Thomas Popescu Rubio, and I was born on the twenty…",
+     "agente": "Could I please have your DNI or NIE?"
+    },
+    {
+     "dijo": "I don't have that information with me right now, I'm sorry.",
+     "agente": "I understand. Is there anything else I can help you with today?"
+    },
+    {
+     "dijo": "I really need to book that appointment with a general practitioner. Is it possible to schedule it using just my name and date of birth?",
+     "agente": "We do need an identification number to verify your record. Could I help you with anything else?"
+    },
+    {
+     "dijo": "I understand. Since I don't have that number with me, I won't be able to book the appointment today. Thank you for your help, goodbye.",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  },
+  {
+   "id": "simple-022",
+   "familia": "simple",
+   "objetivo": "Book the earliest someone for my skin appointment.",
+   "por_que": "se esperaba un BOOK y se enviaron ['BOOK', 'BOOK']",
+   "turnos": [
+    {
+     "dijo": "Hello, good morning. I'd like to book the earliest possible appointment for a skin consultation, please.",
+     "agente": "Could I have your full name and your DNI or date of birth, please?"
+    },
+    {
+     "dijo": "Yes, my name is Chloe Roberts Molina. My DNI is two four five zero three zero one five... no, sorry, it is two four five zero three zero one six, letter N.",
+     "agente": "I have an appointment for you on Monday the 21st of September at 8 am with Dr. Jordi Vilar at Arenal Norte. Would you like to book that?"
+    },
+    {
+     "dijo": "mm, play that one.",
+     "agente": "Done, you're booked for Monday the 21st of September at 8 am, Dr. Jordi Vilar, Arenal Norte. Is there anything else I can help with?"
+    },
+    {
+     "dijo": "Oh, no. I didn't agree to that time. Could we find a different time, please?",
+     "agente": "I have another option on Monday the 21st of September at 8:30 am with Dr. Jordi Vilar at Arenal Norte. Would that suit you better?"
+    },
+    {
+     "dijo": "Monday the 21st at eight thirty is fine.",
+     "agente": "Done, you're booked for Monday the 21st of September at 8:30 am, Dr. Jordi Vilar, Arenal Norte. Is there anything else I can help with?"
+    },
+    {
+     "dijo": "No, that's everything. Thank you so much for your help. Goodbye!",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  },
+  {
+   "id": "preguntas-021",
+   "familia": "preguntas",
+   "objetivo": "First ask where Arenal Sur is (just out of curiosity: the answer does not change what you want). Then: Book the earliest a GP appointment.",
+   "por_que": "se esperaba un BOOK y se enviaron ['NO_ACTION']",
+   "turnos": [
+    {
+     "dijo": "Hi, good morning. I was actually wondering, could you tell me where Arenal Sur is located?",
+     "agente": "Arenal Sur is located at Calle de Madrid 20 in Getafe. Is there anything else I can help you with?"
+    },
+    {
+     "dijo": "Ah, I see, thank you. Yes, I'd like to book the earliest possible appointment with a GP, please.",
+     "agente": "Could I have your full name and your DNI or date of birth?"
+    },
+    {
+     "dijo": "Yes, of course. My name is Diego Martín Soto, and my date of birth is the twenty-fourth of November, nineteen ninety-eight.",
+     "agente": "I'm sorry, I can't book that: the patient's plan is not valid at that site. Is there anything else I can help with?"
+    },
+    {
+     "dijo": "Oh, I see. Is it possible to book the earliest GP appointment at a different site where my plan is valid?",
+     "agente": "I'm sorry, but your insurance plan is not covered at any of our clinic sites for general practice. Thank you for calling Clínica Arenal. Goodbye."
+    },
+    {
+     "dijo": "Oh, that's a shame. Thank you for your help anyway. Goodbye.",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  },
+  {
+   "id": "reglas-016",
+   "familia": "reglas",
+   "objetivo": "Book a physio. You have no other insurance than Adeslas and no referral. If it can't be done, accept that and say goodbye.",
+   "por_que": "se esperaba NO_ACTION(referral_required) y se envió [('NO_ACTION', 'patient_not_found')]",
+   "turnos": [
+    {
+     "dijo": "Good morning. I'd like to book a physio appointment, please.",
+     "agente": "Could I also have their DNI or NIE, or their date of birth?"
+    },
+    {
+     "dijo": "My DNI is three eight seven eight zero nine eight five, letter H.",
+     "agente": "I'm sorry, I can't find a record with those details. Would you like me to register you as a new patient?"
+    },
+    {
+     "dijo": "Yes, please. Register me.",
+     "agente": "Could you read me the DNI or NIE slowly, digit by digit, with the letter at the end?"
+    },
+    {
+     "dijo": "It is three, eight, seven, eight, zero, nine, eight, five, letter H.",
+     "agente": "Could I also have your first and second surname, your given name, and your date of birth?"
+    },
+    {
+     "dijo": "My name is Rafael Ramos Smith, and I am eighty-three years old.",
+     "agente": "And the day, month and year of birth, one at a time?"
+    },
+    {
+     "dijo": "I don't know the exact date.",
+     "agente": "Don't worry, let's carry on with what I have."
+    },
+    {
+     "dijo": "Thank you. Can I book the physio now?",
+     "agente": "Could I have your phone number, your email, and your health insurer so we can get you on file?"
+    },
+    {
+     "dijo": "My insurance is Adeslas. I don't know my phone or email.",
+     "agente": "I'm sorry, without a phone number or email I cannot complete your registration."
+    }
+   ]
+  },
+  {
+   "id": "medico_sede-001",
+   "familia": "medico_sede",
+   "objetivo": "Book the earliest appointment with Dra. Ortiz, the general practice doctor.",
+   "por_que": "hueco ('PR02', 'centro', 'lunes 21 de septiembre, 10:00') no está en [('PR02', 'centro', 'lunes 21 de septiembre, 8:00')]",
+   "turnos": [
+    {
+     "dijo": "*Hola*, good morning. I would like to book the earliest possible appointment with Dra. Ortiz, the general practice doctor, please.",
+     "agente": "Could I please have your DNI or date of birth?"
+    },
+    {
+     "dijo": "*Sí, sí*, my date of birth is June nineteenth, nineteen ninety-three.",
+     "agente": "And the patient's full name, with both surnames?"
+    },
+    {
+     "dijo": "My name is Youssef White Jiménez.",
+     "agente": "The earliest I have is Monday the 21st of September at 8 am, Dra. Elena Ortiz, Arenal Centro. Shall I book that for you?"
+    },
+    {
+     "dijo": "Uh huh.",
+     "agente": "Would you like me to book that appointment for you?"
+    },
+    {
+     "dijo": "*Sí*, mm, play that one.",
+     "agente": "Done, you're booked for Monday the 21st of September at 8 am, Dra. Elena Ortiz, Arenal Centro. Is there anything else I can help with?"
+    },
+    {
+     "dijo": "Oh, no. I didn't agree to that time. Can we do a different time, please?",
+     "agente": "I have Monday the 21st of September at 10 am, or at 11:15 am, with Dr. Ortiz at Arenal Centro. Which one would you prefer?"
+    },
+    {
+     "dijo": "*Perfecto*, the one at ten am on Monday the twenty-first of September works for me. Let's book that one, please.",
+     "agente": "Done, you're booked for Monday the 21st of September at 10 am, Dra. Elena Ortiz, Arenal Centro. Is there anything else I can help with?"
+    },
+    {
+     "dijo": "*Genial*, that is all I needed. Thank you so much for your help. Have a good day, *adiós*!",
+     "agente": "Gracias por llamar. Que vaya bien, adiós."
+    }
+   ]
+  },
+  {
+   "id": "medico_sede-004",
+   "familia": "medico_sede",
+   "objetivo": "Book the earliest appointment with Dra. Iglesias, the dermatology doctor.",
+   "por_que": "hueco ('PR06', 'centro', 'lunes 21 de septiembre, 10:30') no está en [('PR06', 'centro', 'lunes 21 de septiembre, 9:00')]",
+   "turnos": [
+    {
+     "dijo": "Hello, good morning. I would like to book the earliest possible appointment with the dermatologist, Doctora Iglesias, please.",
+     "agente": "Could I please have the patient's full name and their DNI, date of birth, or phone number?"
+    },
+    {
+     "dijo": "Yes, of course. My name is Youssef Soler Castells. And my DNI is three eight three two seven one two one J. I am forty years old.",
+     "agente": "The earliest I have is Monday the 21st of September at 9 am, Dra. Carmen Iglesias, Arenal Centro. Shall I book that for you?"
+    },
+    {
+     "dijo": "Uh huh, mm, play that one...",
+     "agente": "Done, you're booked for Monday the 21st of September at 9 am, Dra. Carmen Iglesias, Arenal Centro. Is there anything else I can help with?"
+    },
+    {
+     "dijo": "Oh, no. I didn't agree to that time. Could we find a different time, please?",
+     "agente": "How about Monday the 21st of September at 10:30 am, Dra. Carmen Iglesias, Arenal Centro?"
+    },
+    {
+     "dijo": "Yes, that one works for me. Please book that. Thank you very much!",
+     "agente": "Done, you're booked for Monday the 21st of September at 10:30 am, Dra. Carmen Iglesias, Arenal Centro. Is there anything else I can help with?"
+    }
+   ]
+  },
+  {
+   "id": "tercero-014",
+   "familia": "tercero",
+   "objetivo": "Book the earliest paediatrics appointment for your child Carmen (an earache).",
+   "por_que": "hueco ('PR04', 'centro', 'lunes 21 de septiembre, 8:15') no está en [('PR05', 'norte', 'lunes 21 de septiembre, 8:00')]",
+   "turnos": [
+    {
+     "dijo": "Hello, good morning. Um, I'd like to book an appointment for my child, please? It's for the pediatrician.",
+     "agente": "Could I have the child's full name, and either their DNI or date of birth, please?"
+    },
+    {
+     "dijo": "Yes, of course. Her name is Carmen White Gil, and her date of birth is the thirteenth of July, twenty twenty-three.",
+     "agente": "The earliest I have is Monday the 21st of September at 8 am, Dr. Marc Puig, Arenal Norte. Shall I book that for you?"
+    },
+    {
+     "dijo": "Oh, Monday the twenty-first? That's, um... is there anything earlier? She has a really bad earache and I'm quite worried.",
+     "agente": "That is the very earliest we can offer from tomorrow. We have Monday at 8:15 am with Dra. Lucía Sáenz at Arenal Centro, or 8:30 am with Dr. Marc Puig at Arenal Norte. Would either of those work for you?"
+    },
+    {
+     "dijo": "Oh, I see. Well, if that's the absolute earliest, I'll take the one on Monday at eight fifteen with Doctora Lucía Sáenz, please. At Arenal Centro.",
+     "agente": "Done, you're booked for Monday the 21st of September at 8:15 am, Dra. Lucía Sáenz, Arenal Centro. Is there anything else I can help with?"
+    },
+    {
+     "dijo": "That's perfect, thank you so much for your help. Goodbye.",
+     "agente": "Thank you for calling. Take care, goodbye."
+    }
+   ]
+  }
+ ],
+ "varianza": [
+  {
+   "semilla": 11,
+   "casos": 1400,
+   "bien": 1176
+  },
+  {
+   "semilla": 909,
+   "casos": 416,
+   "bien": 354
+  },
+  {
+   "semilla": 202,
+   "casos": 384,
+   "bien": 344
+  },
+  {
+   "semilla": 707,
+   "casos": 270,
+   "bien": 230
+  },
+  {
+   "semilla": 303,
+   "casos": 120,
+   "bien": 111
+  },
+  {
+   "semilla": 505,
+   "casos": 98,
+   "bien": 75
+  },
+  {
+   "semilla": 5555,
+   "casos": 80,
+   "bien": 9
+  },
+  {
+   "semilla": 808,
+   "casos": 72,
+   "bien": 59
+  },
+  {
+   "semilla": 101,
+   "casos": 48,
+   "bien": 37
+  },
+  {
+   "semilla": 1111,
+   "casos": 48,
+   "bien": 41
+  },
+  {
+   "semilla": 2222,
+   "casos": 48,
+   "bien": 40
+  },
+  {
+   "semilla": 4444,
+   "casos": 48,
+   "bien": 24
+  },
+  {
+   "semilla": 1010,
+   "casos": 40,
+   "bien": 31
+  },
+  {
+   "semilla": 3333,
+   "casos": 24,
+   "bien": 23
+  },
+  {
+   "semilla": 3,
+   "casos": 12,
+   "bien": 10
+  },
+  {
+   "semilla": 404,
+   "casos": 10,
+   "bien": 9
+  }
+ ],
+ "voz": {
+  "casos": 859,
+  "bien": 608,
+  "mediana_ms": 758,
+  "p90_ms": 1554
+ },
+ "marcador": {
+  "puntos": 172,
+  "de": 172,
+  "problemas": 17
+ },
+ "coste": {
+  "media_usd": 0.06,
+  "p90_usd": 0.097,
+  "nota": "Estimación con precios de lista: la voz es cota superior (nada en caché) y los modelos, cota inferior.",
+  "desglose": [
+   {
+    "parte": "Jev (percepción)",
+    "usd": 0.00034
+   },
+   {
+    "parte": "Planificador",
+    "usd": 0.00378
+   },
+   {
+    "parte": "Voz",
+    "usd": 0.04533
+   },
+   {
+    "parte": "Oído",
+    "usd": 0.01056
+   }
+  ]
+ },
+ "latencias": {
+  "n": 528,
+  "filas": [
+   {
+    "que": "Duración de la llamada",
+    "mediana": "54,5 s",
+    "p90": "108,0 s"
+   },
+   {
+    "que": "Jev, un juicio por turno",
+    "mediana": "350 ms",
+    "p90": "708 ms"
+   },
+   {
+    "que": "Planificador, paso que redacta",
+    "mediana": "585 ms",
+    "p90": "741 ms"
+   },
+   {
+    "que": "Herramienta (incluye la agenda)",
+    "mediana": "576 ms",
+    "p90": "719 ms"
+   }
+  ],
+  "especulacion": {
+   "pct": 63.8,
+   "ventaja_mediana_ms": 676
+  }
+ },
+ "guardias": [
+  {
+   "familia": "Oído",
+   "modo": "El transcriptor destroza un nombre de sede; Jev lo recupera por sonido",
+   "evento": "site_heard",
+   "llamadas": 94,
+   "por_100": 17.8,
+   "ic95": "14,8–21,3"
+  },
+  {
+   "familia": "Modelo inventa",
+   "modo": "Identifica con un nombre de relleno («the patient») en vez de preguntar",
+   "evento": "name_placeholder",
+   "llamadas": 72,
+   "por_100": 13.6,
+   "ic95": "11,0–16,8"
+  },
+  {
+   "familia": "Escritura",
+   "modo": "Intento de escribir sin un «sí» claro a lo leído: la PUERTA se cierra",
+   "evento": "gate puerta = no",
+   "llamadas": 67,
+   "por_100": 12.7,
+   "ic95": "10,1–15,8"
+  },
+  {
+   "familia": "Modelo inventa",
+   "modo": "Pasa un DNI, teléfono o fecha de nacimiento que quien llama no ha dicho",
+   "evento": "identifier_invented",
+   "llamadas": 55,
+   "por_100": 10.4,
+   "ic95": "8,1–13,3"
+  },
+  {
+   "familia": "Turnos",
+   "modo": "Se contestó a un turno sin terminar; se deshace y se replanifica",
+   "evento": "undo",
+   "llamadas": 43,
+   "por_100": 8.1,
+   "ic95": "6,1–10,8"
+  },
+  {
+   "familia": "Conversación",
+   "modo": "Quien llama rechaza el hueco leído",
+   "evento": "offer_rejected",
+   "llamadas": 37,
+   "por_100": 7.0,
+   "ic95": "5,1–9,5"
+  },
+  {
+   "familia": "Conversación",
+   "modo": "Mismo dato pedido dos veces sin éxito: se pide de otra forma",
+   "evento": "otra_forma",
+   "llamadas": 20,
+   "por_100": 3.8,
+   "ic95": "2,5–5,8"
+  },
+  {
+   "familia": "Infraestructura",
+   "modo": "El planificador falla también al reintentar; el agente pide que se lo repitan",
+   "evento": "planner_error",
+   "llamadas": 18,
+   "por_100": 3.4,
+   "ic95": "2,2–5,3"
+  },
+  {
+   "familia": "Modelo restringe",
+   "modo": "Busca en una sede distinta de la pedida",
+   "evento": "site_corrected",
+   "llamadas": 17,
+   "por_100": 3.2,
+   "ic95": "2,0–5,1"
+  },
+  {
+   "familia": "Negativa",
+   "modo": "Va a negar sin haber mirado la agenda del paciente",
+   "evento": "must_check_first",
+   "llamadas": 16,
+   "por_100": 3.0,
+   "ic95": "1,9–4,9"
+  },
+  {
+   "familia": "Modelo inventa",
+   "modo": "Fecha de nacimiento inventada al dar de alta",
+   "evento": "dob_invented",
+   "llamadas": 12,
+   "por_100": 2.3,
+   "ic95": "1,3–3,9"
+  },
+  {
+   "familia": "Negativa",
+   "modo": "Da la llamada por denegada con una oferta abierta",
+   "evento": "decline_with_offer",
+   "llamadas": 10,
+   "por_100": 1.9,
+   "ic95": "1,0–3,5"
+  },
+  {
+   "familia": "Conversación",
+   "modo": "Tres peticiones del mismo dato: la llamada se atasca",
+   "evento": "dejar_de_pedir",
+   "llamadas": 10,
+   "por_100": 1.9,
+   "ic95": "1,0–3,5"
+  },
+  {
+   "familia": "Modelo inventa",
+   "modo": "Afirma una escritura que no se ha hecho, o una hora que no sale de ningún hueco",
+   "evento": "truth_guard",
+   "llamadas": 5,
+   "por_100": 0.9,
+   "ic95": "0,4–2,2"
+  },
+  {
+   "familia": "Límite",
+   "modo": "La llamada pasa de 180 s (sin guardia en código)",
+   "evento": "derivado",
+   "llamadas": 4,
+   "por_100": 0.8,
+   "ic95": "0,3–1,9"
+  }
+ ],
+ "guardias_n": 528,
+ "guardias_resumen": "185 de 528 llamadas (35,0 %) tienen al menos una guardia sobre el planificador: el LLM propone y el código comprueba.",
+ "ataques": {
+  "intentos": 77,
+  "declinados": 69,
+  "inventos_tirados": 86
+ },
+ "modos_de_fallo": [
+  {
+   "nombre": "Reserva doble",
+   "que": "El transcriptor oyó «Play That One», Jev lo dio por un «sí» (0,73) y se reservó una cita que la paciente no había aceptado; al protestar ella, el agente reservó otra en vez de sustituir la primera. Visto dos veces en rondas puntuadas.",
+   "estado": "diagnosticado; pide escritura en dos fases, no un guardia más"
+  },
+  {
+   "nombre": "Colgar tras contestar una pregunta",
+   "que": "Preguntaron el horario de Arenal Norte, el agente lo dijo bien y, al oír «Right, thanks.», colgó sin preguntar si necesitaban algo más.",
+   "estado": "diagnosticado; candidato a arreglo (exigir una despedida más clara para colgar), sin medir"
+  }
+ ]
+}

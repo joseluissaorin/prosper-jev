@@ -1,0 +1,27 @@
+{
+  // Dígame: la web del producto (recursos estáticos en ./public) y su API (src/worker.js).
+  // Desplegar desde esta carpeta con `npx wrangler deploy`.
+  // Secretos (con `npx wrangler secret put …`): CALL_TOKEN, MONITOR_TOKEN, OPENROUTER_API_KEY, ELEVENLABS_API_KEY.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "digame",
+  "account_id": "f22c7a728ddc8e41cefd2644f8fb7632",
+  "main": "src/worker.js",
+  "compatibility_date": "2026-09-01",
+  "observability": { "enabled": true },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page",
+    // El Worker va por delante solo en la API y en los dos WebSocket; lo demás lo sirven los recursos estáticos.
+    "run_worker_first": ["/api/*", "/llamada", "/monitor"]
+  },
+  "kv_namespaces": [{ "binding": "ACTAS", "id": "a5ef93f6111f4948af4c142f3a9450af" }],
+  // Último respaldo del gemelo si OpenRouter no responde (o está sin saldo): el mismo gpt-oss-120b, en Workers AI.
+  "ai": { "binding": "AI" },
+  "vars": {
+    // La instancia LOCAL del agente (clínica simulada), por su túnel. Si el túnel cambia de nombre, se cambia aquí.
+    "UPSTREAM": "https://tracker-oxygen-alabama-steal.trycloudflare.com"
+  },
+  "workers_dev": true,
+  "routes": [{ "pattern": "digame.joseluissaorin.com", "custom_domain": true }]
+}

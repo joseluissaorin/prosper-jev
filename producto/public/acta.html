@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F4F1EA">
+<title>Acta de llamada · Dígame</title>
+<meta name="description" content="La edición crítica de una llamada: lo que se dijo, lo que entendió Jev al margen y el sello de la puerta donde se escribió.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/digame.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='%23F4F1EA'/><circle cx='32' cy='32' r='20' fill='%23C8321C'/><text x='32' y='42' font-family='Georgia' font-style='italic' font-size='30' text-anchor='middle' fill='%23F4F1EA'>¿</text></svg>">
+</head>
+<body>
+<header class="cabecera fija">
+  <a class="marca" href="/">Dígame</a>
+  <nav aria-label="Secciones">
+    <a href="/mesa#actas">El archivo</a>
+    <a href="/mesa">La mesa</a>
+    <a href="/" class="opc">Llamar</a>
+  </nav>
+</header>
+
+<main class="acta-pagina">
+  <div class="acta-barra no-imprime">
+    <span class="rotulo" id="donde">Archivo de Clínica Arenal · clínica de pruebas</span>
+    <span class="acciones">
+      <button type="button" class="boton hueco" id="btn-repro">Reproducir con sus tiempos</button>
+      <button type="button" class="boton" id="btn-print">Imprimir o guardar en PDF</button>
+    </span>
+  </div>
+  <article id="acta"><p class="rotulo">Buscando el acta…</p></article>
+  <p class="rotulo no-imprime" style="margin-top:2.4rem;line-height:1.9">Cómo se lee: a la izquierda, lo que se dijo. Al margen, lo que entendió Jev (Sistema 1) en ese turno, con su probabilidad: una barra en terracota es un margen estrecho. Entre líneas, con una flecha, lo que hizo el núcleo: la ficha, la agenda, la oferta. La caja de la <b>puerta</b> aparece donde se quiso escribir en la agenda: sin un «sí» claro a algo leído en voz alta, no se abre.</p>
+</main>
+
+<script src="/js/acta.js"></script>
+<script>
+(async () => {
+  const qs = new URLSearchParams(location.search), cont = document.getElementById("acta"), A = window.Acta;
+  let acta = null, repro = null;
+  try {
+    if (qs.get("mia")) { acta = JSON.parse(localStorage.getItem("digame-acta-propia") || "null"); document.getElementById("donde").textContent = "Su llamada desde la web · clínica de pruebas"; }
+    else if (qs.get("v")) { const r = await fetch("/api/acta/" + encodeURIComponent(qs.get("v"))); if (r.ok) acta = await r.json(); document.getElementById("donde").textContent = "Acta guardada desde la web · se conserva treinta días"; }
+    else if (qs.get("id")) { const r = await fetch("/datos/actas/" + encodeURIComponent(qs.get("id")) + ".json"); if (r.ok) acta = await r.json(); }
+  } catch {}
+  if (!acta) { cont.innerHTML = '<p class="acta-resumen">No encuentro esa acta. <a href="/mesa#actas">Volver al archivo</a>.</p>'; return; }
+  document.title = `Acta ${String(acta.id).slice(-8)} · ${A.resTexto(acta.resultado)} · Dígame`;
+  A.pintar(cont, acta);
+  document.getElementById("btn-print").onclick = () => { if (repro) { repro.parar(); repro = null; A.pintar(cont, acta); } print(); };
+  const b = document.getElementById("btn-repro");
+  b.onclick = () => {
+    if (repro) { repro.parar(); repro = null; A.pintar(cont, acta); b.textContent = "Reproducir con sus tiempos"; return; }
+    cont.innerHTML = ""; cont.appendChild(A.cabecera(acta)); cont.appendChild(A.resumen(acta));
+    const hoja = document.createElement("div"); cont.appendChild(hoja);
+    b.textContent = "Parar y ver entera";
+    repro = A.reproducir(hoja, acta, { velocidad: 1.4, onEvento() { scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); },
+      onFin() { cont.appendChild(A.cifras(acta)); repro = null; b.textContent = "Reproducir con sus tiempos"; } });
+  };
+  if (qs.get("repro")) b.click();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+/* La página técnica: una columna de lectura estrecha, un índice fijo a la izquierda y figuras que pueden salirse. */
+
+.tec-portada { border-bottom: 3px solid var(--tinta); padding: clamp(2.4rem, 6vw, 4.6rem) 0 2rem; }
+.tec-portada h1 { margin: .6rem 0 0; font-size: clamp(2.8rem, 7.5vw, 6.4rem); font-style: italic; font-weight: 500; letter-spacing: -.05em; line-height: .9; }
+.tec-portada .bajada { font-size: clamp(1.15rem, 1.8vw, 1.42rem); line-height: 1.42; max-width: 46rem; margin: 1.4rem 0 0; color: #33312d; }
+.tec-portada .datos { display: flex; flex-wrap: wrap; gap: .4rem 1.6rem; margin-top: 1.6rem; font-family: var(--mono); font-size: .68rem; color: var(--apagado); }
+.tec-portada .datos b { color: var(--tinta); font-weight: 600; }
+
+.tec { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); gap: clamp(2rem, 5vw, 5rem); max-width: var(--ancho); margin: 0 auto; padding: 2.6rem clamp(1.1rem, 4vw, 3rem) 6rem; align-items: start; }
+.tec-indice { position: sticky; top: 4.4rem; max-height: calc(100vh - 5.5rem); overflow-y: auto; font-family: var(--mono); font-size: .68rem; line-height: 1.5; padding-right: .4rem; }
+.tec-indice b { display: block; letter-spacing: .16em; text-transform: uppercase; font-size: .6rem; color: var(--apagado); margin: 0 0 .7rem; font-weight: 600; }
+.tec-indice ol { list-style: none; margin: 0; padding: 0; counter-reset: ind; }
+.tec-indice li { counter-increment: ind; border-top: 1px solid var(--filete); }
+.tec-indice a { display: grid; grid-template-columns: 1.7rem 1fr; padding: .42rem 0; text-decoration: none; color: var(--tinta); }
+.tec-indice a::before { content: counter(ind, decimal-leading-zero); color: var(--apagado); }
+.tec-indice a:hover, .tec-indice a.activo { color: var(--terracota); }
+.tec-indice a.activo::before { color: var(--terracota); }
+
+.tec-cuerpo { min-width: 0; counter-reset: sec fig; }
+.tec-cuerpo section { scroll-margin-top: 4.6rem; padding: 0 0 1.2rem; margin: 0 0 3.2rem; border-bottom: 1px solid var(--tinta); counter-increment: sec; }
+.tec-cuerpo section:last-child { border-bottom: 0; }
+.tec-cuerpo h2 { margin: 0 0 1.2rem; font-size: clamp(1.9rem, 3.6vw, 2.9rem); font-weight: 500; letter-spacing: -.035em; line-height: 1.02; max-width: 46rem; }
+.tec-cuerpo h2::before { content: counter(sec, decimal-leading-zero); display: block; font-family: var(--mono); font-size: .7rem; letter-spacing: .2em; color: var(--terracota); margin-bottom: .7rem; font-weight: 400; }
+.tec-cuerpo h3 { margin: 2.2rem 0 .6rem; font-size: clamp(1.3rem, 2vw, 1.6rem); font-weight: 500; letter-spacing: -.02em; line-height: 1.12; max-width: 44rem; }
+.tec-cuerpo h4 { margin: 1.6rem 0 .4rem; font-family: var(--mono); font-size: .72rem; letter-spacing: .14em; text-transform: uppercase; font-weight: 600; }
+.tec-cuerpo p, .tec-cuerpo ul, .tec-cuerpo ol { max-width: 44rem; font-size: 1.1rem; line-height: 1.62; margin: 0 0 1rem; }
+.tec-cuerpo ul, .tec-cuerpo ol { padding-left: 1.25rem; }
+.tec-cuerpo li { margin: 0 0 .4rem; padding-left: .2rem; }
+.tec-cuerpo li::marker { color: var(--terracota); }
+.tec-cuerpo code { font-family: var(--mono); font-size: .84em; background: var(--papel-2); padding: .05em .3em; border-radius: 2px; word-break: break-word; }
+.tec-cuerpo strong, .tec-cuerpo b { font-weight: 600; }
+
+.nota { max-width: 44rem; margin: 1.4rem 0; padding: .85rem 1rem .9rem 1.1rem; border-left: 3px solid var(--tinta); background: #FBF9F4; font-size: 1.02rem; line-height: 1.55; }
+.nota b:first-child { font-family: var(--mono); font-size: .66rem; letter-spacing: .16em; text-transform: uppercase; margin-right: .5em; font-weight: 600; }
+.nota.medido { border-color: var(--azul); }
+.nota.medido b:first-child { color: var(--azul); }
+.nota.trampa { border-color: var(--terracota); }
+.nota.trampa b:first-child { color: var(--terracota); }
+
+.tabla-caja { overflow-x: auto; margin: 1.4rem 0 1.6rem; max-width: 58rem; }
+.tabla { width: 100%; border-collapse: collapse; border-top: 2px solid var(--tinta); font-size: .96rem; line-height: 1.42; }
+.tabla th { text-align: left; font-family: var(--mono); font-weight: 600; font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; padding: .6rem .9rem .6rem 0; border-bottom: 1px solid var(--tinta); white-space: nowrap; vertical-align: bottom; }
+.tabla td { padding: .55rem .9rem .55rem 0; border-bottom: 1px solid var(--filete); vertical-align: top; }
+.tabla td:first-child { font-weight: 500; }
+.tabla td code { white-space: nowrap; }
+
+.codigo { max-width: 58rem; margin: 1.3rem 0 1.5rem; background: var(--papel-2); border-left: 3px solid var(--tinta); padding: .9rem 1rem; overflow-x: auto; font-family: var(--mono); font-size: .74rem; line-height: 1.65; }
+.codigo code { background: none; padding: 0; font-size: inherit; white-space: pre; word-break: normal; }
+
+.fig { margin: 1.8rem 0 2rem; max-width: 60rem; counter-increment: fig; }
+.fig-cuerpo { border: 1px solid var(--tinta); background: #FBF9F4; padding: clamp(.7rem, 2vw, 1.3rem); overflow-x: auto; }
+.fig-cuerpo.foto { padding: 0; line-height: 0; }
+.fig-cuerpo img { width: 100%; height: auto; display: block; }
+.fig-cuerpo svg { display: block; width: 100%; height: auto; min-width: 40rem; }
+.fig figcaption { font-family: var(--mono); font-size: .68rem; line-height: 1.6; color: var(--apagado); margin-top: .55rem; max-width: 50rem; }
+.fig figcaption::before { content: "Figura " counter(fig) ". "; color: var(--tinta); font-weight: 600; }
+
+/* los diagramas comparten trazo y letra */
+.dg text { font-family: var(--mono); font-size: 12px; fill: var(--tinta); }
+.dg .s { font-family: var(--serif); font-size: 17px; letter-spacing: -.01em; }
+.dg .si { font-family: var(--serif); font-size: 17px; font-style: italic; }
+.dg .p { font-size: 10.5px; fill: var(--apagado); }
+.dg .r { fill: var(--terracota); }
+.dg .az { fill: var(--azul); }
+.dg .bl { fill: var(--papel); }
+.dg .caja { fill: var(--papel); stroke: var(--tinta); stroke-width: 1.5; }
+.dg .caja-r { fill: var(--papel); stroke: var(--terracota); stroke-width: 1.8; }
+.dg .caja-az { fill: var(--papel); stroke: var(--azul); stroke-width: 1.8; }
+.dg .negra { fill: var(--tinta); stroke: var(--tinta); stroke-width: 1.5; }
+.dg .gris { fill: var(--papel-2); stroke: var(--filete); stroke-width: 1; }
+.dg .fl { stroke: var(--tinta); stroke-width: 1.5; fill: none; }
+.dg .fl-r { stroke: var(--terracota); stroke-width: 1.5; fill: none; }
+.dg .fl-az { stroke: var(--azul); stroke-width: 1.5; fill: none; }
+.dg .disc { stroke-dasharray: 5 4; }
+
+.resumen { max-width: 46rem; border: 1.5px solid var(--tinta); background: #FBF9F4; padding: 1.2rem 1.3rem; margin: 0 0 2.4rem; box-shadow: 8px 8px 0 var(--tinta); }
+.resumen h3 { margin: 0 0 .7rem; font-size: 1.3rem; }
+.resumen ol { margin: 0; padding-left: 1.3rem; font-size: 1.05rem; line-height: 1.55; }
+.resumen li { margin-bottom: .45rem; }
+
+@media (max-width: 900px) {
+  .tec { grid-template-columns: 1fr; }
+  .tec-indice { position: static; max-height: none; border-bottom: 1px solid var(--tinta); padding-bottom: 1rem; }
+  .tec-indice ol { columns: 2; column-gap: 1.4rem; }
+  .tec-indice li { break-inside: avoid; }
+  .tec-cuerpo p, .tec-cuerpo ul, .tec-cuerpo ol { font-size: 1.04rem; }
+}
+@media (max-width: 560px) { .tec-indice ol { columns: 1; } }
+@media print {
+  .tec { display: block; padding: 0; }
+  .tec-indice, .cabecera { display: none; }
+  .tec-cuerpo section { break-inside: auto; }
+  .fig, .nota, .tabla tr, .codigo { break-inside: avoid; }
+  .resumen { box-shadow: none; }
+}

@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F4F1EA">
+<title>Auditoría del teléfono · Dígame</title>
+<meta name="description" content="Lo que recibe una clínica al acabar su semana de escucha: cuántas llamadas entraron, a qué horas, qué querían y cuánto valía lo que se habría perdido.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/digame.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='%23F4F1EA'/><circle cx='32' cy='32' r='20' fill='%23C8321C'/><text x='32' y='42' font-family='Georgia' font-style='italic' font-size='30' text-anchor='middle' fill='%23F4F1EA'>¿</text></svg>">
+<style>
+  .aud { max-width: 60rem; margin: 0 auto; padding: clamp(1.5rem, 4vw, 3.4rem) clamp(1.1rem, 4vw, 3rem) 5rem; }
+  .aud-cab { border-bottom: 3px solid var(--tinta); padding-bottom: 1.2rem; margin-bottom: 2rem; display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: end; }
+  .aud-cab h1 { margin: 0; font-size: clamp(2.8rem, 8vw, 6.4rem); font-style: italic; font-weight: 500; letter-spacing: -.05em; line-height: .88; }
+  .aud-cab h1 small { display: block; font-family: var(--mono); font-style: normal; font-size: .68rem; letter-spacing: .16em; text-transform: uppercase; color: var(--apagado); margin-bottom: .8rem; }
+  .aud h2 { margin: 2.8rem 0 .8rem; font-size: clamp(1.6rem, 3vw, 2.3rem); font-weight: 500; letter-spacing: -.025em; line-height: 1.05; }
+  .aud h2 span { font-family: var(--mono); font-size: .7rem; letter-spacing: .16em; color: var(--terracota); display: block; margin-bottom: .5rem; }
+  .aud p { max-width: 44rem; }
+  .titular-cifra { font-size: clamp(1.5rem, 3.2vw, 2.5rem); line-height: 1.16; letter-spacing: -.02em; max-width: 46rem; margin: 0 0 1rem; }
+  .titular-cifra b { font-weight: 500; font-style: italic; color: var(--terracota); }
+  .horas { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; align-items: end; height: 13rem; border-bottom: 1px solid var(--tinta); margin-top: 1.4rem; }
+  .horas div { background: var(--tinta); min-height: 1px; position: relative; }
+  .horas div.fuera { background: var(--terracota); }
+  .horas-eje { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; font-family: var(--mono); font-size: .58rem; color: var(--apagado); text-align: center; margin-top: .35rem; }
+  .leyenda { font-family: var(--mono); font-size: .66rem; color: var(--apagado); margin-top: .7rem; display: flex; gap: 1.4rem; flex-wrap: wrap; }
+  .leyenda i { display: inline-block; width: .7em; height: .7em; margin-right: .45em; background: var(--tinta); }
+  .leyenda i.t { background: var(--terracota); }
+  .valor { border: 1.5px solid var(--tinta); padding: 1.2rem 1.3rem; margin-top: 1.2rem; display: grid; grid-template-columns: 1fr auto; gap: 1rem 2rem; align-items: center; box-shadow: 8px 8px 0 var(--terracota); background: #FBF9F4; }
+  .valor .euros { font-size: clamp(3rem, 8vw, 6rem); font-style: italic; font-weight: 500; letter-spacing: -.05em; line-height: .9; font-variant-numeric: lining-nums; }
+  .valor label { font-family: var(--mono); font-size: .7rem; letter-spacing: .06em; color: var(--apagado); display: block; margin-top: .6rem; }
+  .valor input { width: 5rem; font: inherit; font-family: var(--mono); font-size: .9rem; border: 1px solid var(--tinta); background: none; padding: .25rem .4rem; margin: 0 .3rem; }
+  .dos { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem 3rem; }
+  @media (max-width: 700px) { .dos, .valor, .aud-cab { grid-template-columns: 1fr; } .horas { height: 9rem; } .horas-eje span:nth-child(odd) { visibility: hidden; } }
+  @media print { .valor { box-shadow: none; } .aud h2 { break-after: avoid; } }
+</style>
+</head>
+<body>
+<header class="cabecera fija">
+  <a class="marca" href="/">Dígame</a>
+  <nav aria-label="Secciones"><a href="/#precio">Precio</a><a href="/mesa">La mesa</a><a href="/" class="opc">Llamar</a></nav>
+</header>
+
+<main class="aud">
+  <div class="acta-barra no-imprime">
+    <span class="rotulo">Lo que recibe una clínica al acabar su semana de escucha · ejemplo con la clínica de pruebas</span>
+    <span class="acciones"><button type="button" class="boton" onclick="print()">Imprimir o guardar en PDF</button></span>
+  </div>
+  <header class="aud-cab">
+    <h1><small>Auditoría del teléfono · nivel 0 · toma nota</small>Su teléfono, esta semana</h1>
+    <div class="ficha-acta" style="font-family:var(--mono);font-size:.7rem;line-height:1.8;text-align:right;color:var(--apagado)"><b style="color:var(--tinta)">Clínica Arenal</b><br><span id="a-periodo"></span><br>elaborada por Dígame<br>sin tocar su agenda</div>
+  </header>
+
+  <p class="titular-cifra" id="a-titular">Leyendo las actas…</p>
+  <p id="a-bajada" style="color:var(--apagado)"></p>
+
+  <h2><span>01 · Cuándo llaman</span>Las horas en las que suena</h2>
+  <div class="horas" id="a-horas" aria-label="Llamadas por hora del día"></div>
+  <div class="horas-eje" id="a-eje"></div>
+  <div class="leyenda"><span><i></i>dentro del horario de recepción (de 9:00 a 20:00)</span><span><i class="t"></i>fuera de horario: hoy no las coge nadie</span></div>
+
+  <h2><span>02 · Qué querían</span>A qué llamaban</h2>
+  <div class="dos">
+    <div class="barras" id="a-querian"></div>
+    <div class="barras" id="a-idiomas"></div>
+  </div>
+
+  <h2><span>03 · Lo que no cupo</span>La demanda que su agenda no pudo atender</h2>
+  <p style="color:var(--apagado)">Cada «no» deja su motivo. Es la primera vez que esta información existe: hasta ahora, lo que se decía por teléfono se evaporaba.</p>
+  <div class="barras" id="a-nocupo" style="max-width:44rem"></div>
+
+  <h2><span>04 · Lo que vale</span>Lo que se habría perdido sin nadie al teléfono</h2>
+  <div class="valor">
+    <div>
+      <p style="margin:0;font-size:1.15rem;line-height:1.4" id="a-valor-texto"></p>
+      <label>Valor medio de una visita en su centro:<input type="number" id="a-ticket" value="45" min="5" max="500" step="5">€ · cámbielo y se recalcula</label>
+    </div>
+    <div class="euros" id="a-euros">0 €</div>
+  </div>
+
+  <h2><span>05 · Y ahora</span>El siguiente peldaño</h2>
+  <p>Durante esta semana Dígame solo ha tomado nota. Con estos números, el nivel 1 se paga solo: ella negocia la cita entera, se la propone a recepción por WhatsApp y una persona aprueba con un toque. Sigue sin tocar su programa de agenda.</p>
+  <p class="no-imprime" style="margin-top:1.4rem"><a class="boton voz" href="mailto:jl@joseluissaorin.com?subject=Semana%20de%20escucha%20con%20D%C3%ADgame">Pedir mi semana de escucha</a> &nbsp; <a class="boton hueco" href="/#niveles">Ver los cuatro niveles</a></p>
+
+  <p class="rotulo" style="margin-top:3rem;line-height:1.9;text-transform:none;letter-spacing:.02em">Con las cartas boca arriba: esta auditoría es un ejemplo hecho con la clínica de pruebas. Sus llamadas son reales, pero las hicieron llamantes de ensayo (el panel del reto Prosper de HackSpain 2026 y nuestro arnés de voz), muchos de madrugada: por eso hay tantas fuera de horario. Con su teléfono, este documento saldría de su propia semana y de sus propios pacientes. Todas las cifras se cuentan de las actas: <a href="/mesa#actas">puede leerlas una a una</a>.</p>
+</main>
+
+<script>
+(async () => {
+  const $ = (id) => document.getElementById(id), miles = (n) => Number(n || 0).toLocaleString("es-ES");
+  let ind; try { ind = await (await fetch("/datos/actas/indice.json")).json(); } catch { $("a-titular").textContent = "No se pudieron leer las actas."; return; }
+  const actas = ind.actas || [], N = actas.length;
+  const partes = (iso) => { const d = new Date(iso); const f = new Intl.DateTimeFormat("es-ES", { timeZone: "Europe/Madrid", hour: "numeric", weekday: "short", hour12: false }).formatToParts(d); return { h: +f.find((x) => x.type === "hour").value % 24, dia: f.find((x) => x.type === "weekday").value }; };
+  const horas = Array(24).fill(0); let fuera = 0, citasFuera = 0, citas = 0;
+  const esGestion = (r) => /BOOK|RESCHEDULE|REGISTER/.test(r || "");
+  for (const a of actas) {
+    const { h, dia } = partes(a.fecha); horas[h]++;
+    const dentro = h >= 9 && h < 20;                       // en el ejemplo solo cuenta la hora: las llamadas de ensayo cayeron en fin de semana
+    if (!dentro) { fuera++; if (esGestion(a.resultado)) citasFuera++; }
+    if (esGestion(a.resultado)) citas++;
+  }
+  const fechas = actas.map((a) => new Date(a.fecha)).sort((x, y) => x - y);
+  const fmt = (d) => d.toLocaleDateString("es-ES", { day: "numeric", month: "long", timeZone: "Europe/Madrid" });
+  $("a-periodo").textContent = fechas.length ? `del ${fmt(fechas[0])} al ${fmt(fechas[fechas.length - 1])} de 2026` : "";
+  const pct = (x) => Math.round((x / Math.max(1, N)) * 100);
+  $("a-titular").innerHTML = `Entraron <b>${miles(N)} llamadas</b>. <b>${pct(fuera)} de cada 100</b> sonaron con la recepción cerrada, y <b>${miles(citasFuera)}</b> de esas querían una cita que se podía dar.`;
+  $("a-bajada").textContent = `En total, ${miles(citas)} llamadas acabaron en una gestión que llena agenda (cita nueva, cambio o alta). La llamada mediana duró ${Math.round([...actas.map((a) => a.dur || 0)].sort((x, y) => x - y)[Math.floor(N / 2)] || 0)} segundos.`;
+  const max = Math.max(...horas, 1);
+  $("a-horas").innerHTML = horas.map((v, h) => `<div class="${h >= 9 && h < 20 ? "" : "fuera"}" style="height:${(v / max) * 100}%" title="${h}:00 · ${v} llamadas"></div>`).join("");
+  $("a-eje").innerHTML = horas.map((_, h) => `<span>${h}</span>`).join("");
+  const barra = (nombre, v, total, roja) => `<div class="barra-fila"><span>${nombre}</span><span class="pista"><i class="${roja ? "baja" : ""}" style="width:${Math.round((v / Math.max(1, total)) * 100)}%"></i></span><span class="n">${miles(v)}</span></div>`;
+  const cuenta = (f) => actas.filter(f).length;
+  const q = [["Pedir una cita", cuenta((a) => /BOOK/.test(a.resultado))], ["Cambiar una cita", cuenta((a) => /RESCHEDULE/.test(a.resultado))], ["Anular una cita", cuenta((a) => /CANCEL/.test(a.resultado))],
+    ["Darse de alta", cuenta((a) => /REGISTER/.test(a.resultado))], ["Una urgencia (derivada al 112)", cuenta((a) => /ESCALATE/.test(a.resultado))], ["Sin gestión: preguntas, comerciales, límites", cuenta((a) => /NO_ACTION/.test(a.resultado || "NO_ACTION"))]];
+  $("a-querian").innerHTML = q.map(([n, v]) => barra(n, v, N)).join("");
+  const ID = { es: "En castellano", en: "En inglés", ca: "En catalán", gl: "En gallego", eu: "En euskera", fr: "En francés" }, idi = {};
+  for (const a of actas) idi[a.idioma] = (idi[a.idioma] || 0) + 1;
+  $("a-idiomas").innerHTML = Object.entries(idi).sort((x, y) => y[1] - x[1]).map(([k, v]) => barra(ID[k] || k, v, N)).join("");
+  const MOT = { no_availability: "No había hueco en lo que pedían", specialty_not_covered: "Su seguro no cubría la especialidad", referral_required: "Hacía falta un volante", allowance_exhausted: "Cupo de visitas del seguro agotado",
+    provider_on_leave: "El médico que pedían está de baja", provider_not_found: "Pedían un médico que no es de la casa", location_not_covered: "Su seguro no cubría esa sede", provider_not_in_network: "Ese médico no trabaja con su seguro",
+    patient_not_found: "No se pudo abrir la ficha", clinic_closed: "Pedían un día en que la clínica cierra" }, mot = {};
+  for (const a of actas) if (a.motivo && MOT[a.motivo]) mot[a.motivo] = (mot[a.motivo] || 0) + 1;
+  const mm = Object.entries(mot).sort((x, y) => y[1] - x[1]), mtot = mm.reduce((s, x) => s + x[1], 0);
+  $("a-nocupo").innerHTML = mm.map(([k, v]) => barra(MOT[k], v, mm[0][1], true)).join("") + `<p class="rotulo" style="margin-top:.8rem">${miles(mtot)} llamadas · cada una con su acta</p>`;
+  const pintarValor = () => {
+    const t = Math.max(0, +$("a-ticket").value || 0);
+    $("a-euros").textContent = miles(citasFuera * t) + " €";
+    $("a-valor-texto").innerHTML = `<b style="font-weight:500">${miles(citasFuera)} gestiones</b> entraron con la recepción cerrada. A ${miles(t)} € la visita, es lo que habría quedado sin atender en este periodo. Dígame las cogió todas; a usted le habrían costado <b style="font-weight:500">${miles(Math.min(190, citasFuera))} €</b>, por el techo mensual.`;
+  };
+  $("a-ticket").addEventListener("input", pintarValor); pintarValor();
+})();
+</script>
+</body>
+</html>

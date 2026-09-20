@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F4F1EA">
+<title>La mesa · Dígame</title>
+<meta name="description" content="No hay dashboard: hay una mesa con cuatro papeles. El parte, las actas, las dudas y el libro de la casa de Clínica Arenal, más la nota de su examen.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/digame.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' fill='%23F4F1EA'/><circle cx='32' cy='32' r='20' fill='%23C8321C'/><text x='32' y='42' font-family='Georgia' font-style='italic' font-size='30' text-anchor='middle' fill='%23F4F1EA'>¿</text></svg>">
+</head>
+<body>
+<header class="cabecera fija">
+  <a class="marca" href="/">Dígame</a>
+  <nav aria-label="Secciones">
+    <a href="/mesa" aria-current="page">La mesa</a>
+    <a href="/#gemelo" class="opc">Su clínica</a>
+    <a href="/#precio" class="opc">Precio</a>
+    <a href="/">Llamar</a>
+  </nav>
+</header>
+
+<div class="mesa-cab">
+  <div class="centro">
+    <span class="rotulo"><b>Clínica Arenal</b> · clínica de pruebas · nivel 2: escribe · edición <span id="cab-edicion">14</span> del libro de la casa</span>
+    <h1>La mesa</h1>
+    <p>Aquí no hay gráficas que vigilar. Hay lo que le dejaría en la mesa una recepcionista de confianza: el parte de ayer, el archivo de actas, las dudas que tiene para usted y el libro con las reglas de la casa. Todo sale de <b id="cab-total">962</b> llamadas reales de este fin de semana.</p>
+  </div>
+</div>
+<nav class="pestanas" aria-label="Papeles de la mesa">
+  <a href="#parte">El parte</a>
+  <a href="#dudas">Las dudas<b id="p-dudas"></b></a>
+  <a href="#actas">Las actas<b id="p-actas"></b></a>
+  <a href="#libro">El libro de la casa<b id="p-libro"></b></a>
+  <a href="#nota">La nota<b id="p-nota"></b></a>
+  <a href="https://prosper.joseluissaorin.com" target="_blank" rel="noopener">La arena ↗</a>
+</nav>
+
+<section class="mesa-seccion" id="parte">
+  <div class="centro">
+    <h2>El parte</h2>
+    <p class="bajada">Cada mañana, por WhatsApp y en prosa. Lo redacta código a partir de lo contado, así que no puede inventar: cada frase lleva al lado las actas que la prueban.</p>
+    <div class="parte">
+      <article class="parte-texto" id="parte-texto"></article>
+      <aside class="parte-cifras" id="parte-cifras"></aside>
+    </div>
+  </div>
+</section>
+
+<section class="mesa-seccion" id="dudas" style="background:var(--papel-2)">
+  <div class="centro">
+    <h2>Las dudas</h2>
+    <p class="bajada">La bandeja donde ella le pregunta a usted: los turnos de margen estrecho, lo que no supo contestar, lo que oyó mal y lo que el modelo quiso inventarse. Cada respuesta suya se convierte en un umbral o en una entrada del banco de respuestas, con esa llamada como caso de prueba.</p>
+    <div class="dudas" id="dudas-lista"></div>
+  </div>
+</section>
+
+<section class="mesa-seccion" id="actas">
+  <div class="centro">
+    <h2>Las actas</h2>
+    <p class="bajada">Cada llamada, en edición crítica: lo que se dijo, lo que entendió Jev al margen y el sello de la puerta allí donde se escribió. Es la respuesta a «¿por qué dijo eso?», lo que pide el RGPD y la unidad de cobro.</p>
+    <div class="actas-filtros" id="actas-filtros"></div>
+    <div class="actas-lista" id="actas-lista"></div>
+    <p class="mas"><button type="button" class="boton hueco" id="actas-mas">Ver más actas</button> <span class="rotulo" id="actas-cuenta" style="margin-left:1rem"></span></p>
+  </div>
+</section>
+
+<section class="mesa-seccion" id="libro" style="background:var(--papel-2)">
+  <div class="centro">
+    <h2>El libro de la casa</h2>
+    <p class="bajada">Las reglas del centro, en lenguaje llano. Al lado de cada una, su prueba: cuántas llamadas reales la aplicaron y cómo le fue en el ensayo. Cambiar una regla lanza un ensayo, y solo entonces se publica una edición nueva.</p>
+    <div class="libro" id="libro-lista"></div>
+    <form class="dictar" id="dictar" autocomplete="off">
+      <input type="text" id="dictar-texto" placeholder="Dícteme una regla: «Las primeras visitas de dermatología, solo por la mañana»" aria-label="Dictar una regla nueva">
+      <button type="submit">Dictar</button>
+    </form>
+    <div id="lectura"></div>
+  </div>
+</section>
+
+<section class="mesa-seccion" id="nota">
+  <div class="centro">
+    <h2>La nota</h2>
+    <p class="bajada">Cómo sabemos que funciona. Un arnés genera pacientes de los datos de la clínica, calcula aparte qué debería pasar y les da carácter. Esto es todo lo ensayado durante el fin de semana, con versiones del agente cada vez mejores: describe el camino entero, suspensos incluidos.</p>
+    <div class="nota-grande">
+      <div class="nota-num" id="nota-num">·<small id="nota-pie"></small></div>
+      <div>
+        <div class="barras" id="nota-familias"></div>
+      </div>
+    </div>
+    <div class="rejilla-3">
+      <div><h3>Según cómo se comporta quien llama</h3><div class="barras" id="nota-comp"></div></div>
+      <div><h3>El reparto</h3><div class="barras" id="nota-reparto"></div></div>
+      <div><h3>Varianza: la misma prueba, otra semilla</h3><div class="barras" id="nota-varianza"></div>
+        <h3 style="margin-top:2rem">En voz de verdad</h3><div class="datos-voz" id="nota-voz"></div></div>
+    </div>
+    <div class="rejilla-3">
+      <div><h3>Lo que cuesta una llamada, en dinero</h3><div class="datos-voz" id="nota-coste"></div></div>
+      <div><h3>Lo que cuesta, en segundos</h3><div class="datos-voz" id="nota-lat"></div></div>
+      <div><h3>El marcador del reto Prosper</h3><div class="datos-voz" id="nota-marcador"></div></div>
+    </div>
+    <div class="fallos" id="nota-guardias" style="margin-top:3rem"></div>
+    <div class="fallos" id="nota-fallos"></div>
+    <div class="suspensos" id="suspensos"></div>
+  </div>
+</section>
+
+<footer class="pie">
+  <div class="centro">
+    <div><p><b style="color:var(--tinta)">Con las cartas boca arriba.</b> Clínica Arenal es una clínica de pruebas y sus pacientes no existen; las llamadas sí son reales (el panel del reto Prosper de HackSpain 2026, nuestro arnés de voz y esta web). Las cifras personales se enseñan enmascaradas. En esta demostración, lo que usted conteste en las dudas o dicte en el libro se queda en su navegador.</p></div>
+    <div><p><a href="/">Portada</a> · <a href="/#niveles">Los niveles</a> · <a href="/#precio">Precio</a> · <a href="mailto:jl@joseluissaorin.com">jl@joseluissaorin.com</a></p></div>
+  </div>
+</footer>
+
+<script src="/js/mesa.js"></script>
+</body>
+</html>

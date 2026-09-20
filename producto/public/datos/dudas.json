@@ -1,0 +1,256 @@
+{
+ "dudas": [
+  {
+   "id": "d1",
+   "tipo": "margen",
+   "titulo": "Dudé si quería anular justo esa cita",
+   "cita": "«Yes, cancel them.»",
+   "detalle": "anular exactamente eso 0,71 · releí la cita y pedí un «sí» antes de anular",
+   "acta": "CA7a201f9bfd524effb1fd76274d4f401a",
+   "t": 37.65,
+   "pregunta": "Volví a leer la cita antes de anularla. ¿Hice bien?",
+   "opciones": [
+    "Sí, siempre así",
+    "Con eso bastaba"
+   ]
+  },
+  {
+   "id": "d2",
+   "tipo": "margen",
+   "titulo": "Dudé si aceptaba la cita",
+   "cita": "«Sí, molbé.»",
+   "detalle": "acepta 0,89 · pedí un «sí» más claro antes de escribir",
+   "acta": "CA5f4d7a823bbb4e82ba533dde641d2cec",
+   "t": 38.84,
+   "pregunta": "Pregunté otra vez antes de escribir. ¿Hice bien?",
+   "opciones": [
+    "Sí, siempre así",
+    "Con eso bastaba"
+   ]
+  },
+  {
+   "id": "d3",
+   "tipo": "margen",
+   "titulo": "Dudé cuál de las ofertas aceptaba",
+   "cita": "«Oh, all right. Yes. That's fine.»",
+   "detalle": "acepta 0,62, pero había leído más de una hora y Jev no vio cuál elegía · pregunté cuál antes de escribir",
+   "acta": "CA59ee892e05a54a1b9c071e19ffb106a3",
+   "t": 42.12,
+   "pregunta": "Dijo que sí, pero no a cuál. Pregunté antes de escribir. ¿Hice bien?",
+   "opciones": [
+    "Sí, siempre así",
+    "Quédate con la primera que leíste"
+   ]
+  },
+  {
+   "id": "d4",
+   "tipo": "margen",
+   "titulo": "Dudé cuál de las ofertas aceptaba",
+   "cita": "«Oh, all right. Yes, that's fine.»",
+   "detalle": "acepta 0,65, pero había leído más de una hora y Jev no vio cuál elegía · pregunté cuál antes de escribir",
+   "acta": "CA420ce45af23e4a4ebfff8cedfcdf4fa2",
+   "t": 48.74,
+   "pregunta": "Dijo que sí, pero no a cuál. Pregunté antes de escribir. ¿Hice bien?",
+   "opciones": [
+    "Sí, siempre así",
+    "Quédate con la primera que leíste"
+   ]
+  },
+  {
+   "id": "d5",
+   "tipo": "margen",
+   "titulo": "Dudé si aceptaba la cita",
+   "cita": "«Close then? Okay, the next afternoon at 3:00 is fine. Yes.»",
+   "detalle": "acepta 0,06 · pedí un «sí» más claro antes de escribir",
+   "acta": "CA33fe7e0ff68f4bb38a34dff6dd08ba03",
+   "t": 68.26,
+   "pregunta": "Pregunté otra vez antes de escribir. ¿Hice bien?",
+   "opciones": [
+    "Sí, siempre así",
+    "Con eso bastaba"
+   ]
+  },
+  {
+   "id": "d6",
+   "tipo": "no_supe",
+   "titulo": "Me preguntaron algo que no sé",
+   "cita": "«Mario Garcia Lopez. Oh, and is there parking at the clinic? My DNI is 39••••38•.»",
+   "detalle": "ese dato no está en el catálogo de la casa · dije que no lo sabía en vez de inventarlo",
+   "acta": "CAb3db7963f4eb4d4b9bf5ce1526727532",
+   "t": 34.58,
+   "pregunta": "Me preguntaron «Mario Garcia Lopez. Oh, and is there parking at the clinic? My DNI is 39••••38•.» y no lo sé: ¿me lo cuenta?",
+   "opciones": [
+    "Te lo cuento",
+    "Di que llamen en horario de oficina"
+   ]
+  },
+  {
+   "id": "d7",
+   "tipo": "no_supe",
+   "titulo": "Me preguntaron algo que no sé",
+   "cita": "«Mario García López Oh, and is there parking at the clinic?»",
+   "detalle": "ese dato no está en el catálogo de la casa · dije que no lo sabía en vez de inventarlo",
+   "acta": "CA983e01daa74e44cbb0c3ec0ecb2480cd",
+   "t": 28.0,
+   "pregunta": "Me preguntaron «Mario García López Oh, and is there parking at the clinic?» y no lo sé: ¿me lo cuenta?",
+   "opciones": [
+    "Te lo cuento",
+    "Di que llamen en horario de oficina"
+   ]
+  },
+  {
+   "id": "d8",
+   "tipo": "no_supe",
+   "titulo": "Me preguntaron algo que no sé",
+   "cita": "«Hi, which of your sites is open on Saturdays?»",
+   "detalle": "solo pude confirmar una parte con el catálogo delante · dije que no lo sabía en vez de inventarlo",
+   "acta": "CA33641058c7304501baaa58a3189936dd",
+   "t": 11.33,
+   "pregunta": "Me preguntaron «Hi, which of your sites is open on Saturdays?» y no lo sé: ¿me lo cuenta?",
+   "opciones": [
+    "Te lo cuento",
+    "Di que llamen en horario de oficina"
+   ]
+  },
+  {
+   "id": "d9",
+   "tipo": "no_supe",
+   "titulo": "Me preguntaron algo que no sé",
+   "cita": "«Mario Garcia Lopez. Oh, and is there parking at the clinic?»",
+   "detalle": "ese dato no está en el catálogo de la casa · dije que no lo sabía en vez de inventarlo",
+   "acta": "CA1c76d44d44e04a2b9600e5c60c2e5021",
+   "t": 29.83,
+   "pregunta": "Me preguntaron «Mario Garcia Lopez. Oh, and is there parking at the clinic?» y no lo sé: ¿me lo cuenta?",
+   "opciones": [
+    "Te lo cuento",
+    "Di que llamen en horario de oficina"
+   ]
+  },
+  {
+   "id": "d10",
+   "tipo": "oido",
+   "titulo": "No entendí lo que dijo",
+   "cita": "«Königs»",
+   "detalle": "no se entiende 0,59 · pedí que lo repitiera en vez de suponer",
+   "acta": "CA8c9c323e4cfe4f408ffe4e3459e2e4f8",
+   "t": 69.12,
+   "pregunta": "Pedí que me lo repitiera. ¿Prefiere que pase la llamada a una persona?",
+   "opciones": [
+    "Sigue pidiendo que repitan",
+    "A la segunda, pásamela"
+   ]
+  },
+  {
+   "id": "d11",
+   "tipo": "oido",
+   "titulo": "No entendí lo que dijo",
+   "cita": "«Hello, dear. I'm»",
+   "detalle": "no se entiende 0,75 · pedí que lo repitiera en vez de suponer",
+   "acta": "CAf114164ab9784546b479bc681595b896",
+   "t": 7.55,
+   "pregunta": "Pedí que me lo repitiera. ¿Prefiere que pase la llamada a una persona?",
+   "opciones": [
+    "Sigue pidiendo que repitan",
+    "A la segunda, pásamela"
+   ]
+  },
+  {
+   "id": "d12",
+   "tipo": "oido",
+   "titulo": "No estaba segura de la sede que oí",
+   "cita": "«Yes, that one.»",
+   "detalle": "¿Arenal Sur? 0,53 · pregunté la sede antes de buscar hueco",
+   "acta": "CA78bb96099383414a9aa48b067c0b9c17",
+   "t": 54.53,
+   "pregunta": "Pregunté la sede en vez de darla por buena. ¿Hice bien?",
+   "opciones": [
+    "Sí, siempre así",
+    "Con eso bastaba"
+   ]
+  },
+  {
+   "id": "d13",
+   "tipo": "oido",
+   "titulo": "No estaba segura de la sede que oí",
+   "cita": "«Hi, I need a GP at R&L Sore. I can only get to Sore.»",
+   "detalle": "¿Arenal Sur? 0,41 · pregunté la sede antes de buscar hueco",
+   "acta": "CAd28cd8d6cf654c7089bb031298347245",
+   "t": 12.11,
+   "pregunta": "Pregunté la sede en vez de darla por buena. ¿Hice bien?",
+   "opciones": [
+    "Sí, siempre así",
+    "Con eso bastaba"
+   ]
+  },
+  {
+   "id": "d14",
+   "tipo": "oido",
+   "titulo": "Pedí una segunda escucha de un dato",
+   "cita": "«Mario García López, DNI 33••••83 letra H.»",
+   "detalle": "segunda escucha del DNI · coincidía con la primera, seguí adelante",
+   "acta": "CAee2fb904c2794cd8a1c4e790a1a7236d",
+   "t": 33.01,
+   "pregunta": "Cuando un número no me cuadra lo escucho dos veces. ¿Sigo así?",
+   "opciones": [
+    "Sí, siempre así",
+    "Solo si la letra no cuadra"
+   ]
+  },
+  {
+   "id": "d15",
+   "tipo": "oido",
+   "titulo": "Pedí una segunda escucha de un dato",
+   "cita": "«Mario García López. D.N.I. tres»",
+   "detalle": "segunda escucha del DNI · coincidía con la primera, seguí adelante",
+   "acta": "CAee2fb904c2794cd8a1c4e790a1a7236d",
+   "t": 51.01,
+   "pregunta": "Cuando un número no me cuadra lo escucho dos veces. ¿Sigo así?",
+   "opciones": [
+    "Sí, siempre así",
+    "Solo si la letra no cuadra"
+   ]
+  },
+  {
+   "id": "d16",
+   "tipo": "invento",
+   "titulo": "El planificador inventó una fecha de nacimiento",
+   "cita": "«39••••38•»",
+   "detalle": "dato tirado: 15 de mayo de 1980 · nadie lo había dicho en la llamada, así que el núcleo no lo dejó pasar",
+   "acta": "CA2c9dd892d3aa4cdeb6945cc5b7547223",
+   "t": 36.45,
+   "pregunta": "Tiré el dato y lo volví a pedir. ¿Hago bien en no fiarme?",
+   "opciones": [
+    "Sí, siempre así",
+    "Avísame cada vez que pase"
+   ]
+  },
+  {
+   "id": "d17",
+   "tipo": "invento",
+   "titulo": "El planificador inventó una dirección",
+   "cita": "«Hi, I need a GP at R&L Thorsore. I can only get to Thorsore.»",
+   "detalle": "dato tirado: Thorsore · nadie lo había dicho en la llamada, así que el núcleo no lo dejó pasar",
+   "acta": "CAfdea9b8631c34ab696baa706436a602e",
+   "t": 10.94,
+   "pregunta": "Tiré el dato y lo volví a pedir. ¿Hago bien en no fiarme?",
+   "opciones": [
+    "Sí, siempre así",
+    "Avísame cada vez que pase"
+   ]
+  },
+  {
+   "id": "d18",
+   "tipo": "invento",
+   "titulo": "El planificador inventó un teléfono",
+   "cita": "«Mario Garcia Lopez DNI39••••83• No, wait, sorry. 39••••38 H»",
+   "detalle": "dato tirado: 60•••••56 · nadie lo había dicho en la llamada, así que el núcleo no lo dejó pasar",
+   "acta": "CAea73d3d0360f41c881c40a4afb310b7e",
+   "t": 29.04,
+   "pregunta": "Tiré el dato y lo volví a pedir. ¿Hago bien en no fiarme?",
+   "opciones": [
+    "Sí, siempre así",
+    "Avísame cada vez que pase"
+   ]
+  }
+ ]
+}
