@@ -597,9 +597,15 @@ class VoiceCall:
         if p is None or p.finished < 0.8:
             return                                        # ni siquiera está claro que haya terminado de hablar
         t_close = time.perf_counter()
+        t_wall = time.time()
         await asyncio.sleep(self.HOLD_AFTER_S)
         if not self.call or self.finalized or self.agent_speaking or self.last_response_t > time.time() - self.HOLD_AFTER_S:
             return                                        # ya ha contestado: no hace falta acuse
+        # y si ya ha sonado algo en este turno —el acuse del planificador mientras trabajaban las herramientas, o
+        # la respuesta— no se encima otro. Medido en las llamadas de esta noche: pasaba en el 1 % de los turnos,
+        # y uno de ellos decía «Done, you're booked for Monday… Let me check.»
+        if getattr(self, "agent_start_t", 0) > t_wall or (self.ack_task is not None and not self.ack_task.done()):
+            return
         if self.turn_open or self.caller_talking() or self.ready_get(full) is not None:
             return
         say = getattr(self.call, "hold_phrase", None)
