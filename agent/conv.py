@@ -900,11 +900,13 @@ class Conv:
         out += pre[1]
         # 3. el planificador, con los juicios de Jev, la lectura determinista y lo ya identificado como señales
         sig = self.signals(text, p) + (f"\n[Kernel lookup, already verified] {' · '.join(pre[0])}" if pre[0] else "")
-        if not s.patients and len(getattr(self, "_line", None) or []) == 1 and not s.for_other:
+        if not s.patients and len(getattr(self, "_line", None) or []) == 1 and not s.for_other and (
+                s.wants_appt or (p.c("intent")[0] not in (None, "unclear", "none") and p.c("intent")[1] >= 0.6)):
             # la línea apunta a UNA ficha: basta el nombre para reconocer a quien llama. Pedirle además el DNI es
             # interrogar a alguien a quien la clínica ya conoce. El nombre no se le da al planificador: lo dice quien llama.
             sig += ("\n[Kernel] The calling line matches exactly one record on file. If the appointment is for the caller, do NOT ask for a "
-                    "DNI or date of birth: just ask who you are speaking to, and call identify_patient with the name they give.")
+                    "DNI or date of birth: once they have said what they need, ask who you are speaking to, and call identify_patient ONLY with a name "
+                    "the caller has actually said. Never guess a name.")
         if not self._dry or True:
             pf = await self.prefetch_offer(p)
             if pf:
@@ -1336,6 +1338,8 @@ class Conv:
             return None
         fn = getattr(self, f"c_{name}", None)
         said = fn(res) if fn else None
+        if said and name == "find_slots" and res.get("offer"):
+            said = self.ya_tiene_cita(res) + said
         if said and name in ("find_slots", "list_appointments", "prepare_cancellation"):
             said = self.reconocer() + said
         # repetir palabra por palabra lo ya dicho en esta llamada no es contestar: que el planificador lo diga de otro modo
@@ -1354,6 +1358,22 @@ class Conv:
         f = m.get("sex") == "F"
         t = {"es": "señora" if f else "señor", "ca": "senyora" if f else "senyor", "en": "Ms" if f else "Mr"}[lang]
         return f"{t} {m['first_surname']}"
+
+    def ya_tiene_cita(self, res: dict) -> str:
+        """«Veo que ya tiene cita el jueves 1 con la Dra. Ortiz.» Antes de dar una cita nueva se nombra la que ya hay: puede
+        que llamen por esa. Una vez, y sin frenar la oferta: quien llama decide."""
+        s = self.s
+        o = s.offers.get(res["offer"]["offer_id"]) or {}
+        ap = s.appts.get(o.get("patient_id")) or []
+        if o.get("purpose") != "book" or not ap or s.for_other or s.asked.get("_cita_previa"):
+            return ""
+        s.asked["_cita_previa"] = 1
+        x = sorted(ap, key=lambda a: a["start_time"])[0]
+        self._log("upcoming_mentioned", appointment=x["appointment_id"])
+        w, doc = S.when(self.lang3(), parse_slot(x["start_time"])), self.prov(x["provider_id"])["name"]
+        return _contraer({"es": f"Veo que ya tiene cita {w} con {doc}. Si es para otra cosa: ",
+                          "ca": f"Veig que ja té hora {w} amb {doc}. Si és per una altra cosa: "}.get(
+                              self.lang3(), f"I see you already have an appointment on {w} with {doc}. If this is a separate one: "))
 
     def reconocer(self) -> str:
         """«Gracias, señora Wood.» Una sola vez, delante de la primera respuesta del código tras identificar a quien
@@ -1581,6 +1601,13 @@ CLINIC VOCABULARY
                 # la línea ya apunta a una ficha: se pregunta como quien reconoce («¿con quién hablo?»), no como quien interroga
                 return {"status": "need_name_known_line", "ask": "ask who you are speaking to (their name is enough: the line matches a record)"}
             return {"status": "need_full_name", "ask": "ask for the patient's full name (name and surnames) to check it against the record"}
+        dicho = " ".join(h[8:] for h in self.s.history if h.startswith("Caller:"))
+        if leer.name_score(dicho, full_name) < 0.5:
+            # medido con guion.py el 20-09: a «Quiero una cita de medicina general» el planificador buscó a «María Teresa del
+            # Pozo», que nadie había nombrado, y el agente contestó «no encuentro ninguna ficha, ¿le doy de alta?»
+            self._log("name_invented", said=full_name)
+            st = "need_name_known_line" if len(line or []) == 1 and not self.s.for_other else "need_full_name"
+            return {"status": st, "ask": "the caller has not said that name: ask who you are speaking to / the patient's full name"}
         # «con la doctora Ortiz» no es el nombre del paciente: el planificador cogía el del médico y no encontraba a nadie
         doc = next((pr for pr in (self.catalog or {}).get("providers", []) if name_sim(full_name, pr["name"]) >= 0.75), None)
         if doc:
@@ -1667,7 +1694,7 @@ CLINIC VOCABULARY
         return {"status": "found", "patient_id": pid, "name": f"{m['given_name']} {m['first_surname']} {m['second_surname']}",
                 "age": f"{age_m // 12} years ({age_m} months)", "insurer_on_file": m["insurer"], "seen_before": m["has_visited_before"],
                 "referrals_on_file": m.get("referrals", []), "last_visit": last, "note_for_you": note,
-                "chart": ficha.para_planificador(note, hist)}
+                "chart": dict(ficha.para_planificador(note, hist), **({"address_them_as": self.tratamiento(m)} if is_caller else {}))}
 
     async def t_list_appointments(self, patient_id: str = "") -> dict:
         if not self.verified(patient_id):
@@ -1692,6 +1719,16 @@ CLINIC VOCABULARY
             self._log("constraints_ignored", date_from=date_from, date_to=date_to, time_from=time_from, weekdays=weekdays, part=part_of_day)
             date_from = date_to = time_from = time_to = ""
             weekdays, part_of_day = None, ""
+        p_ = self._p
+        recien = [k for k in s.menu if s.offers.get(k, {}).get("status") == "open" and s.offers[k].get("turn") == s.turn - 1]
+        if recien and p_ is not None and p_.act[0] in ("provide_info", "backchannel") and p_.n("asks_question", 0.0) < 0.5 and p_.n("accepts", 0.0) < 0.6 \
+                and all((p_.c(k)[0] in (None, d) or p_.c(k)[1] < 0.5) for k, d in (("date_kind", "none"), ("weekday", "none"), ("part", "any"))) \
+                and p_.n("names_doctor_or_site", 0.0) < 0.5 and not re.search(r"\b(otr[oa]s?|other|another|else|more|más|altre|següent|siguiente|next)\b", fold(p_.text or "")):
+            # «I'm her son, Peter» no es un «no»: medido con guion.py, el planificador buscaba otro hueco a ciegas
+            self._log("research_blocked", offers=recien, act=p_.act[0])
+            return {"error": "the caller neither accepted nor rejected the offer you just read, and gave no new date or time preference. Do NOT "
+                             "search again: reply to what they actually said, then ask whether that offer suits them.",
+                    "offer_on_the_table": self.readback_of(recien[-1])}
         appt = None
         if purpose == "reschedule":
             ap = s.appts.get(patient_id) or await API.appointments(patient_id, "upcoming")
