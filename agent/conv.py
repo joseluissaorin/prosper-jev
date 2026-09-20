@@ -1332,7 +1332,7 @@ class Conv:
         # despedirse: sin nada abierto sobre la mesa y con Jev viéndolo claro, no hace falta pensarlo
         if p.n("says_goodbye") >= (0.9 if self.nada_hecho() else 0.85) and act in ("end_call", "confirm", "backchannel") and not s.prepared and \
                 not [k for k in s.menu if s.offers.get(k, {}).get("status") == "open"] and not self.needs_check():
-            said = self._sp("goodbye")
+            said = self.repaso_final() + self._sp("goodbye")
             s.msgs.append(types.Content(role="model", parts=[types.Part(text=said)]))
             return said, True, [self._log("fast_path", why="se despide", said=said)]
         return None
@@ -1483,6 +1483,21 @@ class Conv:
         return _contraer({"es": f"Veo que ya tiene cita {w} con {doc}. Si es para otra cosa: ",
                           "ca": f"Veig que ja té hora {w} amb {doc}. Si és per una altra cosa: "}.get(
                               self.lang3(), f"I see you already have an appointment on {w} with {doc}. If this is a separate one: "))
+
+    def repaso_final(self) -> str:
+        """«Le repito la cita: …» antes de despedirse, si la ficha dice que esta persona lo comprueba y no lo pide (o que
+        pide la fecha otra vez al final). Solo si en esta llamada se ha reservado o cambiado algo."""
+        s = self.s
+        if not ({"repaso_final", "despacio"} & set(s.trato)) or s.asked.get("_repaso"):
+            return ""
+        o = next((o for o in reversed(list(s.offers.values())) if o.get("status") in ("booked", "moved")), None)
+        if not o:
+            return ""
+        s.asked["_repaso"] = 1
+        x = o["slot"]
+        w = f"{S.when(self.lang3(), parse_slot(x['start_time']))}, {self.prov(x['provider_id'])['name']}, {self.site_name(x['location_id'])}"
+        self._log("repaso_final", slot=x["start_time"])
+        return _contraer({"es": f"Le repito la cita: {w}. ", "ca": f"Li repeteixo l’hora: {w}. "}.get(self.lang3(), f"Just to repeat your appointment: {w}. "))
 
     def reconocer(self) -> str:
         """«Gracias, señora Wood.» Una sola vez, delante de la primera respuesta del código tras identificar a quien

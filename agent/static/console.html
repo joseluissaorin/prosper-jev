@@ -161,6 +161,7 @@ function describe(v) {
     case "usual_doctor_option": return { cls: "tool", head: "su médico de siempre", text: `además de lo primero se ofrece ${v.provider} (${v.slot}): elige quien llama` };
     case "upcoming_mentioned": return { cls: "tool", head: "ya tiene una cita", text: `se nombra ${v.appointment} antes de dar otra` };
     case "ask_what_to_change": return { cls: "warn", head: "«no» a secas", text: "no dice qué no encaja: se pregunta (día, hora o médico) en vez de ofrecer a ciegas" };
+    case "repaso_final": return { cls: "tool", head: "repaso antes de colgar", text: `la ficha dice que esta persona comprueba la cita y no lo pide: se le repite (${v.slot})` };
     case "cut_short": return { cls: "warn", head: "frase cortada", text: `quien llama solo oyó (${Math.round((v.frac || 0) * 100)} %): ${q(v.heard, 120)}` };
     case "barge_in": return { cls: "warn", head: "interrupción", text: `${v.act || ""} ${v.conf != null ? v.conf : ""} · ${q(v.text, 120)}` };
     case "early_answer": return { cls: "", head: "respuesta temprana", text: `${q(v.text, 100)} · terminada ${v.finished}` };
