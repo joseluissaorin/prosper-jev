@@ -320,6 +320,7 @@ class St2:
     last_block: str | None = None
     seen_rules: list = field(default_factory=list)    # reglas que la API devolvió de verdad (las únicas declarables)
     for_other: bool = False                           # la cita es para otra persona, no para quien llama
+    offer_pushed: bool = False                        # ya se le ha dicho una vez que no se rinda con una oferta abierta
     oos_seen: str | None = None                       # Jev vio en algún turno algo que hay que declinar (ventas, datos de otro…)
     checked: bool = False                             # ¿se ha llegado a mirar la agenda? (sin eso no hay regla que declarar)
     wants_appt: bool = False                          # quien llama ha pedido una cita con sus palabras
@@ -2129,6 +2130,16 @@ CLINIC VOCABULARY
     WEAK = ("out_of_scope", "patient_not_found")
 
     async def t_decline(self, reason: str = "out_of_scope") -> dict:
+        s = self.s
+        # rendirse con un hueco reservable en la mano no es «fuera de ámbito». Medido en la ronda puntuada de
+        # nearest_site del 20-09 a las 02:16: tres de cuatro casos acabaron en NO_ACTION(out_of_scope) con la
+        # oferta abierta y el paciente identificado. Lo que toca es leer la oferta, no colgar.
+        abierta = [k for k in s.menu if s.offers.get(k, {}).get("status") == "open"]
+        if reason == "out_of_scope" and abierta and s.patients and not self._oos_asked() and not s.offer_pushed:
+            s.offer_pushed = True
+            self._log("decline_with_offer", offers=abierta)
+            return {"error": "you have an appointment on the table for an identified patient and the caller has not asked for anything "
+                             f"you must refuse: do NOT decline. Read back {self.readback_of(abierta[-1])} and ask if they want it."}
         # quien llama pedía algo que la clínica no da por teléfono (consejo médico, datos de otro, una venta): el motivo
         # es ese, no la regla de cobertura con la que se tropezó al mirar la agenda por si acaso
         if self.s.oos_seen in ("medical_advice", "other_patient_data", "injection", "sales") and reason != "out_of_scope":
