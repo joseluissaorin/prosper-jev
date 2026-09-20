@@ -48,6 +48,8 @@ CALLS.mkdir(exist_ok=True)
 class Hub:
     """Canal de la consola: eventos de todas las llamadas, en directo."""
 
+    KEEP_CALLS = 50       # llamadas con eventos en memoria: las más recientes (las que siguen en curso no se tiran)
+
     def __init__(self):
         self.subs: set[asyncio.Queue] = set()
         self.active: dict[str, dict] = {}
@@ -55,12 +57,64 @@ class Hub:
 
     def publish(self, call_id: str, ev: dict):
         ev = {"call_id": call_id, "ts": time.time(), **ev}
+        nueva = call_id not in self.recent
         self.recent[call_id].append(ev)
         if len(self.recent[call_id]) > 800:
             self.recent[call_id] = self.recent[call_id][-800:]
+        try:
+            if nueva:
+                self._trim()
+            self._touch(call_id, ev)
+        except Exception:  # noqa: BLE001  (la consola nunca rompe una llamada)
+            pass
         for q in list(self.subs):
             if q.qsize() < 2000:
                 q.put_nowait(ev)
+
+    def _trim(self):
+        """Sin tope, `recent` crecía una entrada por llamada para siempre. Se quedan las 50 últimas."""
+        sobran = len(self.recent) - self.KEEP_CALLS
+        for cid in list(self.recent):
+            if sobran <= 0:
+                break
+            if cid not in self.active:
+                del self.recent[cid]
+                sobran -= 1
+
+    def _touch(self, call_id: str, ev: dict):
+        """El estado de cada llamada en curso, para la fila de «llamadas a la vez» de la consola."""
+        a = self.active.get(call_id)
+        if a is None:
+            return
+        typ = ev.get("type")
+        if typ in ("vad", "partial"):
+            if typ == "partial":
+                a["hearing"] = str(ev.get("text") or "")[-120:]
+            return
+        a["events"] = a.get("events", 0) + 1
+        a["last_ts"] = ev["ts"]
+        if typ == "trace":
+            v = ev.get("event") or {}
+            a["last"] = v.get("kind") or "trace"
+            if isinstance(v.get("turn"), int):
+                a["turn"] = v["turn"]
+            if v.get("kind") == "lang" and v.get("lang"):
+                a["lang"] = v["lang"]
+            if v.get("kind") == "tool":
+                a["last"] = f"tool:{v.get('name')}"
+        else:
+            a["last"] = typ
+        if typ == "state" and isinstance(ev.get("state"), dict):
+            a["lang"] = ev["state"].get("lang") or a.get("lang")
+            a["patient"] = ev["state"].get("patient")
+        elif typ == "agent":
+            a["agent_said"] = str(ev.get("text") or "")[:160]
+            a["hearing"] = ""
+        elif typ == "final":
+            a["caller_said"] = str(ev.get("text") or "")[:160]
+            a["hearing"] = ""
+        elif typ == "latency" and ev.get("stage") == "fin de voz → primera palabra":
+            a["last_latency_ms"] = ev.get("ms")
 
 
 HUB = Hub()
@@ -142,22 +196,77 @@ async def api_token(request, call_next):
     return await call_next(request)
 
 
-@app.get("/api/calls")
-async def calls():
-    items = []
-    for f in sorted(CALLS.glob("CA*.json"), key=lambda f: f.stat().st_mtime, reverse=True)[:100]:
-        r = json.loads(f.read_text())
-        if not isinstance(r, dict):
+FIRST_WORD = "fin de voz → primera palabra"
+_SUMMARY: dict[str, tuple[float, dict | None]] = {}     # ruta → (mtime, resumen): cada informe se lee del disco una vez
+_SUMMARY_LOCK = asyncio.Lock()
+
+
+def _pct(xs: list, q: float):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(round(q * (len(xs) - 1))))] if xs else None
+
+
+def _summary(f: Path, mtime: float) -> dict | None:
+    r = json.loads(f.read_text())
+    if not isinstance(r, dict) or not ("trace" in r or "transcript" in r):     # en la carpeta también hay JSON que no son llamadas
+        return None
+    out = {k: r.get(k) for k in ("call_id", "outcome", "reason", "language", "duration_s", "patient_id", "from_number", "ended_by", "brain")}
+    out["call_id"] = out["call_id"] or f.stem
+    trace = [v for v in (r.get("trace") or []) if isinstance(v, dict)]
+    lat = [v["ms"] for v in trace if v.get("kind") == "latency" and v.get("stage") == FIRST_WORD and isinstance(v.get("ms"), (int, float))]
+    out.update({"ended_ts": mtime, "turns": sum(1 for v in trace if v.get("kind") == "perception"),
+                "lat_n": len(lat), "lat_p50": _pct(lat, 0.5), "lat_p90": _pct(lat, 0.9), "lat_max": max(lat) if lat else None})
+    return out
+
+
+def _list_past(todas: bool, limit: int = 100) -> list[dict]:
+    """Trabajo de disco: SIEMPRE en un hilo (asyncio.to_thread). En el bucle de eventos le quitaba el ritmo al audio."""
+    files = []
+    for f in CALLS.glob("*.json" if todas else "CA*.json"):
+        try:
+            files.append((f.stat().st_mtime, f))
+        except OSError:
             continue
-        items.append({k: r.get(k) for k in ("call_id", "outcome", "reason", "language", "duration_s", "patient_id", "from_number", "ended_by")})
+    files.sort(key=lambda x: x[0], reverse=True)
+    items, vivos = [], set()
+    for mtime, f in files[:limit]:
+        key = str(f)
+        vivos.add(key)
+        hit = _SUMMARY.get(key)
+        if hit is None or hit[0] != mtime:
+            try:
+                hit = (mtime, _summary(f, mtime))
+            except Exception:  # noqa: BLE001  (un informe a medio escribir o roto no tumba la lista)
+                hit = (mtime, None)
+            _SUMMARY[key] = hit
+        if hit[1]:
+            items.append(hit[1])
+    if len(_SUMMARY) > 4 * limit:
+        for key in [k for k in _SUMMARY if k not in vivos]:
+            _SUMMARY.pop(key, None)
+    return items
+
+
+@app.get("/api/calls")
+async def calls(todas: int = 0):
+    async with _SUMMARY_LOCK:        # varias pestañas sondeando a la vez: un solo barrido del disco, no uno por pestaña
+        items = await asyncio.to_thread(_list_past, bool(todas))
     return {"active": list(HUB.active.values()), "past": items}
+
+
+def _read_report(cid: str):
+    f = CALLS / f"{Path(cid).name}.json"
+    return json.loads(f.read_text()) if f.is_file() else None
 
 
 @app.get("/api/calls/{cid}")
 async def call_detail(cid: str):
-    f = CALLS / f"{cid}.json"
-    if f.exists():
-        return JSONResponse(json.loads(f.read_text()))
+    try:
+        rep = await asyncio.to_thread(_read_report, cid)
+    except Exception:  # noqa: BLE001
+        rep = None
+    if rep is not None:
+        return JSONResponse(rep)
     return JSONResponse({"call_id": cid, "live": True, "events": HUB.recent.get(cid, [])})
 
 
@@ -181,8 +290,10 @@ async def monitor(ws: WebSocket):
     q: asyncio.Queue = asyncio.Queue()
     HUB.subs.add(q)
     try:
-        for cid, evs in list(HUB.recent.items())[-10:]:
-            for ev in evs[-200:]:
+        # al abrir la consola: todas las llamadas en curso (pueden ser diez a la vez) y las últimas terminadas
+        cids = list(HUB.recent)
+        for cid in [c for c in cids if c in HUB.active] + [c for c in cids if c not in HUB.active][-10:]:
+            for ev in HUB.recent.get(cid, [])[-300:]:
                 await ws.send_text(json.dumps(ev, ensure_ascii=False, default=str))
         while True:
             ev = await q.get()
@@ -211,6 +322,12 @@ async def twilio(ws: WebSocket):
         await call.close()
 
 
+def _write_report(path: Path, rep: dict):
+    tmp = path.with_suffix(".json.tmp")      # escritura atómica: /api/calls nunca lee un informe a medias
+    tmp.write_text(json.dumps(rep, ensure_ascii=False, indent=1, default=str))
+    os.replace(tmp, path)
+
+
 class TwilioCall(demo.VoiceCall):
     """La misma orquestación de turnos que la demo, con el cerebro de Prosper y el cable de Twilio."""
     AUDIO_FMT = "ulaw8"      # la boca da µ-law de 8 kHz directamente: sin remuestrear
@@ -233,6 +350,21 @@ class TwilioCall(demo.VoiceCall):
 
     async def emit(self, typ: str, **kw):
         HUB.publish(self.call_sid or "?", {"type": typ, **kw})
+        if typ in ("latency", "voice", "stop_audio"):
+            self._keep(typ, kw)
+
+    def _keep(self, typ: str, kw: dict):
+        """Las latencias (y la voz, y los cortes) también a la traza de la llamada: antes solo iban a la consola en
+        directo y se perdían al colgar. Si esto falla, la llamada sigue igual."""
+        try:
+            logf = getattr(self.call, "_log", None)
+            if logf is None:
+                return
+            if typ == "voice":
+                kw = {k: kw.get(k) for k in ("source", "ready", "first_ms", "gaps")}
+            logf(typ, **{k: v for k, v in kw.items() if k not in ("kind", "t")})
+        except Exception:  # noqa: BLE001
+            pass
 
     async def send_json(self, obj: dict):
         async with self.send_lock:
@@ -356,8 +488,14 @@ class TwilioCall(demo.VoiceCall):
             await self.emit("log", msg=f"no se pudo declarar al cerrar: {e}")
         rep = await self.call.report()
         rep.update({"ended_by": why, "from_number": self.call.s.from_number, "transcript": self.call.s.history})
-        (CALLS / f"{self.call_sid or 'sin-id'}.json").write_text(json.dumps(rep, ensure_ascii=False, indent=1, default=str))
         HUB.active.pop(self.call_sid, None)
+        rep["trace"] = list(rep.get("trace") or [])     # copia: una voz que aún acaba puede añadir eventos mientras se escribe
+        try:
+            # serializar y escribir en un hilo: con diez llamadas a la vez, esto en el bucle de eventos era un hueco en el audio de las otras nueve
+            await asyncio.to_thread(_write_report, CALLS / f"{Path(self.call_sid or 'sin-id').name}.json", rep)
+        except Exception as e:  # noqa: BLE001
+            log.exception("informe: %s", e)
+            await self.emit("log", msg=f"no se pudo guardar el informe: {e}")
         await self.emit("report", report={k: v for k, v in rep.items() if k != "trace"})
 
     async def close(self):

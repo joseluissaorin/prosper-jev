@@ -421,6 +421,10 @@ class Conv:
 
     def _log(self, kind: str, **kw) -> dict:
         ev = {"t": round(time.time() - self.s.started, 2), "kind": kind, **kw}
+        # el turno en cada evento: la consola agrupa por turno («¿por qué dijo eso?») sin adivinar por la hora
+        turn = getattr(self.s, "turn", None)
+        if isinstance(turn, int) and "turn" not in ev:
+            ev["turn"] = turn
         self.s.trace.append(ev)
         return {"kind": "event", "event": ev}
 
@@ -430,6 +434,11 @@ class Conv:
     def spoken(self, text: str) -> None:
         self.s.last_agent = text
         self.s.history.append(f"Receptionist: {text}")
+        try:
+            # lo dicho, con su hora: el informe guardado se puede leer intercalado (la transcripción no lleva tiempos)
+            self._log("said", text=text)
+        except Exception:  # noqa: BLE001  (la observabilidad nunca rompe una llamada)
+            pass
 
     async def cat(self) -> dict:
         if self.catalog is None:
@@ -771,7 +780,7 @@ class Conv:
         s.said_filler = True
         try:
             self.on_early(word)
-            self._log("filler", kind=kind, text=word)
+            self._log("filler", marker=kind, text=word)   # «kind=» chocaba con el parámetro de _log y el evento se perdía
         except Exception:  # noqa: BLE001
             pass
 
