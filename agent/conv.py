@@ -1352,7 +1352,8 @@ class Conv:
             pre = self.ya_tiene_cita(res)
             said = pre + (said[:1].lower() + said[1:] if pre else said)
         if said and name in ("find_slots", "list_appointments", "prepare_cancellation"):
-            said = self.reconocer() + said
+            pre = self.reconocer()
+            said = pre + (said[:1].lower() + said[1:] if pre.endswith(": ") else said)
         # repetir palabra por palabra lo ya dicho en esta llamada no es contestar: que el planificador lo diga de otro modo
         if said and any(fold(said) == fold(h[14:]) for h in s.history if h.startswith("Receptionist: ")):
             return None
@@ -1391,10 +1392,13 @@ class Conv:
         llama: las plantillas no saludan por el nombre y el planificador solo lo hace cuando redacta él."""
         s = self.s
         m = next((x for x in s.patients.values() if x.get("_caller")), None)
-        if not m or s.for_other or s.asked.get("_reconocido") or s.said_filler:
+        if not m or s.for_other or s.asked.get("_reconocido"):
             return ""
         s.asked["_reconocido"] = 1
-        return {"es": "Gracias, {n}. ", "ca": "Gràcies, {n}. "}.get(self.lang3(), "Thank you, {n}. ").format(n=self.tratamiento(m))
+        n = self.tratamiento(m)
+        if s.said_filler:                                 # ya ha sonado «Muy bien,» o «Gracias,»: basta el nombre
+            return f"{n[:1].upper()}{n[1:]}: "
+        return {"es": "Gracias, {n}. ", "ca": "Gràcies, {n}. "}.get(self.lang3(), "Thank you, {n}. ").format(n=n)
 
     def c_find_slots(self, r: dict) -> str | None:
         s = self.s
@@ -1714,7 +1718,7 @@ CLINIC VOCABULARY
         # el calendario de la clínica es fijo y su «próximas» puede traer citas de días que ya han pasado: a quien llama
         # hoy no se le dice «veo que tiene cita el lunes 14» si hoy es 20
         hoy = self.s.t0.strftime("%Y-%m-%dT%H:%M")
-        ap = [a for a in ap if a["start_time"][:16] >= hoy] or ap
+        ap = [a for a in ap if a["start_time"][:16] >= hoy]
         self.s.appts[patient_id] = ap
         return {"appointments": [{"appointment_id": a["appointment_id"], "when": S.when(self.lang3(), parse_slot(a["start_time"])),
                                   "iso": parse_slot(a["start_time"]).strftime("%Y-%m-%dT%H:%M"), "doctor": self.prov(a["provider_id"])["name"],
