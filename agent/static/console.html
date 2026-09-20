@@ -5,93 +5,532 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Prosper · consola de llamadas</title>
 <style>
-:root { --paper:#f6f3ee; --card:#fffdf9; --ink:#1f2328; --muted:#7a7670; --line:#e6e0d6; --accent:#1f6f6b; --soft:#d8ebe8; --warn:#b5532f; --ok:#2f7d4a;
+:root { --paper:#f6f3ee; --card:#fffdf9; --ink:#1f2328; --muted:#7a7670; --line:#e6e0d6; --accent:#1f6f6b; --soft:#d8ebe8; --warn:#b5532f; --warnsoft:#fbe9e0; --ok:#2f7d4a;
+  --gold:#8a6a1f; --goldsoft:#fff6e8; --goldline:#f0dcc0; --blue:#eef1f6;
   --serif:"Iowan Old Style","Palatino Linotype",Georgia,serif; --sans:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",system-ui,sans-serif; --mono:ui-monospace,"SF Mono",Menlo,monospace; }
-* { box-sizing:border-box } body { margin:0; background:var(--paper); color:var(--ink); font:14px/1.45 var(--sans) }
-header { padding:20px 28px 12px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:flex-end }
-h1 { font:600 24px/1.1 var(--serif); margin:0 } header p { margin:4px 0 0; color:var(--muted) }
-main { display:grid; grid-template-columns:300px 1fr 1fr; gap:16px; padding:16px 28px }
+* { box-sizing:border-box } body { margin:0; background:var(--paper); color:var(--ink); font:15px/1.5 var(--sans) }
+header { padding:18px 28px 12px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; gap:24px }
+h1 { font:600 26px/1.1 var(--serif); margin:0 } header p { margin:4px 0 0; color:var(--muted) }
+h2 { font:600 16px/1.2 var(--serif); margin:0 0 8px } h3 { font:600 11.5px/1.2 var(--sans); letter-spacing:.07em; text-transform:uppercase; color:var(--muted); margin:14px 0 6px }
+.muted { color:var(--muted) } .mono { font-family:var(--mono) }
+.meter { display:flex; align-items:center; gap:14px; text-align:right }
+.meter .n { font:600 54px/1 var(--serif); color:var(--accent); min-width:1.2ch; font-variant-numeric:tabular-nums } .meter.zero .n { color:var(--muted) }
+.meter .lbl { font:600 15px/1.2 var(--serif) } .meter .sub { font-size:12.5px; color:var(--muted) }
+.dot { width:10px; height:10px; border-radius:50%; background:var(--muted); display:inline-block; flex:none } .dot.on { background:var(--ok); box-shadow:0 0 0 0 rgba(47,125,74,.5); animation:pulse 1.6s infinite } .dot.off { background:var(--warn) }
+@keyframes pulse { 70% { box-shadow:0 0 0 9px rgba(47,125,74,0) } 100% { box-shadow:0 0 0 0 rgba(47,125,74,0) } }
+#activas { padding:12px 28px 0; display:grid; gap:6px }
+.arow { display:grid; grid-template-columns:14px 160px 60px 76px minmax(180px,300px) 170px 1fr; gap:12px; align-items:center; background:var(--card); border:1px solid var(--accent); border-radius:10px; padding:7px 12px; cursor:pointer; font-size:13.5px }
+.arow.sel { outline:2px solid var(--accent) } .arow .said { white-space:nowrap; overflow:hidden; text-overflow:ellipsis } .arow .k { font:12.5px var(--mono); color:var(--accent); white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.arow .num { font-variant-numeric:tabular-nums }
+main { display:grid; grid-template-columns:290px minmax(0,1.25fr) minmax(0,1fr); gap:16px; padding:14px 28px 28px; align-items:start }
 .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px }
-h2 { font:600 15px/1.2 var(--serif); margin:0 0 8px }
-.list { display:grid; gap:6px; max-height:80vh; overflow:auto } .item { padding:8px 10px; border-radius:8px; border:1px solid var(--line); cursor:pointer; font-size:12.5px }
-.item.live { border-color:var(--accent); background:var(--soft) } .item.sel { outline:2px solid var(--accent) } .muted { color:var(--muted) }
-.tl { display:grid; gap:6px; max-height:80vh; overflow:auto; font-size:13px }
-.msg { padding:7px 10px; border-radius:10px; max-width:92% } .agent { background:var(--soft); justify-self:start } .caller { background:#eef1f6; justify-self:end }
-.gate { font-size:12.5px } .ok { color:var(--ok) } .ko { color:var(--warn) }
-.ev { font:11.5px var(--mono); color:var(--muted) } .submit { font:12px var(--mono); background:#fff6e8; border:1px solid #f0dcc0; padding:6px 8px; border-radius:8px }
-pre { font:11.5px/1.4 var(--mono); white-space:pre-wrap; margin:0 }
+.col { display:grid; gap:16px; grid-template-columns:minmax(0,1fr); min-width:0 } .card { min-width:0 } .step { overflow-wrap:anywhere } .step.ko { border-color:var(--warn) } .scroll { max-height:calc(100vh - 190px); overflow:auto }
+.list { display:grid; gap:6px; grid-template-columns:minmax(0,1fr); padding:2px } .item { min-width:0; padding:8px 10px; border-radius:8px; border:1px solid var(--line); cursor:pointer; font-size:13px }
+.item:hover { border-color:var(--accent) } .item.live { border-color:var(--accent); background:var(--soft) } .item.sel { outline:2px solid var(--accent) }
+.item .top { display:flex; justify-content:space-between; gap:8px } .item .id { font:12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap } .arow > span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.pill { display:inline-block; font:600 11px/1 var(--sans); padding:3px 7px; border-radius:99px; background:var(--soft); color:var(--accent); white-space:nowrap } .pill.warn { background:var(--warnsoft); color:var(--warn) } .pill.gold { background:var(--goldsoft); color:var(--gold); border:1px solid var(--goldline) } .pill.grey { background:#efece6; color:var(--muted) }
+label.chk { font-size:12.5px; color:var(--muted); display:flex; gap:6px; align-items:center; margin:0 0 8px; cursor:pointer }
+.tl { display:grid; gap:14px }
+.turn { border-left:3px solid var(--line); padding:0 0 0 12px; display:grid; gap:5px } .turn.hot { border-left-color:var(--accent) }
+.turn > .th { display:flex; gap:8px; align-items:center; font:600 11.5px/1 var(--sans); letter-spacing:.07em; text-transform:uppercase; color:var(--muted) }
+.msg { padding:8px 12px; border-radius:12px; max-width:88%; font-size:15.5px; line-height:1.4 } .msg .when { display:block; font:11px var(--mono); color:var(--muted); margin-top:3px }
+.agent { background:var(--soft); justify-self:start; cursor:pointer; border:1px solid transparent } .agent:hover, .agent.sel { border-color:var(--accent) } .agent .why { color:var(--accent); font:600 11.5px var(--sans); margin-left:8px; white-space:nowrap }
+.caller { background:var(--blue); justify-self:end }
+.ev { font:12.5px/1.45 var(--mono); color:#57534c; display:grid; grid-template-columns:46px 1fr auto; gap:8px; align-items:baseline; padding:1px 0 } .ev .t { color:var(--muted); font-size:11px } .ev .ms { color:var(--muted); white-space:nowrap } .ev b { font-weight:600; color:var(--ink) }
+.ev.tool b { color:var(--accent) } .ev.lane b { color:#3d4f8a } .ev.done { background:var(--goldsoft); border:1px solid var(--goldline); border-radius:8px; padding:4px 8px } .ev.warn b, .ev.ko b { color:var(--warn) } .ev.ok b { color:var(--ok) } .ev.dim { opacity:.75 }
+.ev.guard { background:var(--warnsoft); border:1px solid #efc7b4; border-radius:8px; padding:5px 8px; color:#6b3520 } .ev.guard b { color:var(--warn) } .ev.guard .tag { display:block; font:600 10.5px var(--sans); letter-spacing:.07em; text-transform:uppercase; color:var(--warn) }
+.ev.slow .ms { color:var(--warn); font-weight:600 }
+.chips { display:flex; flex-wrap:wrap; gap:5px } .chip { font:12px var(--mono); padding:3px 7px; border-radius:7px; background:#efece6 } .chip.hi { background:var(--soft); color:var(--accent) } .chip.alarm { background:var(--warnsoft); color:var(--warn) }
+.quote { font:italic 15px/1.4 var(--serif); border-left:3px solid var(--line); padding:2px 0 2px 10px; margin:0 } .quote.a { border-left-color:var(--accent) }
+.step { border:1px solid var(--line); border-radius:9px; padding:7px 9px; margin:0 0 6px; font-size:13px } .step.guard { border-color:#efc7b4; background:var(--warnsoft) } .step.made { border-color:var(--accent); background:var(--soft) }
+.step .hd { display:flex; justify-content:space-between; gap:8px; font-weight:600 } .step .hd .ms { font:12px var(--mono); color:var(--muted); font-weight:400; white-space:nowrap }
+pre { font:11.5px/1.4 var(--mono); white-space:pre-wrap; word-break:break-word; margin:4px 0 0 } details summary { cursor:pointer; color:var(--muted); font-size:12.5px }
+.stats { display:grid; grid-template-columns:repeat(3,1fr); gap:8px } .stat { border:1px solid var(--line); border-radius:9px; padding:7px 9px } .stat .v { font:600 24px/1.1 var(--serif); font-variant-numeric:tabular-nums } .stat .v small { font:400 12px var(--sans); color:var(--muted) } .stat .l { font-size:11.5px; color:var(--muted) }
+.stat.bad .v { color:var(--warn) } .stat.good .v { color:var(--ok) }
+.bars { display:flex; align-items:flex-end; gap:3px; height:48px; margin-top:10px } .bar { flex:1; max-width:18px; background:var(--accent); border-radius:3px 3px 0 0; min-height:2px } .bar.bad { background:var(--warn) }
+.submit { font:12.5px var(--mono); background:var(--goldsoft); border:1px solid var(--goldline); padding:6px 8px; border-radius:8px; margin-bottom:5px }
+table.kv { border-collapse:collapse; width:100%; font-size:12.5px } table.kv td { padding:2px 6px 2px 0; vertical-align:top } table.kv td:first-child { color:var(--muted); white-space:nowrap } table.kv td:last-child { font-family:var(--mono); text-align:right }
+@media (max-width:1100px) { main { grid-template-columns:1fr } .arow { grid-template-columns:14px 1fr 1fr } .arow .x { display:none } }
 </style>
 </head>
 <body>
-<header><div><h1>Clínica Arenal · consola de llamadas</h1><p>Cada llamada en directo: qué oyó, qué entendió Jev, qué decidió el código, qué se declaró y por qué.</p></div>
-<div class="muted" id="stats"></div></header>
+<header>
+  <div><h1>Clínica Arenal · consola de llamadas</h1><p>Cada llamada en directo: qué oyó, qué entendió Jev, qué decidió el código, qué se declaró y por qué.</p></div>
+  <div class="meter zero" id="meter"><div><div class="lbl" id="meterlbl">llamadas a la vez</div><div class="sub" id="stats">conectando…</div></div><div class="n" id="nactive">0</div><span class="dot off" id="wsdot" title="Conexión con el servidor"></span></div>
+</header>
+<section id="activas"></section>
 <main>
-  <section class="card"><h2>Llamadas</h2><div class="list" id="calls"></div></section>
-  <section class="card"><h2>Conversación y decisiones</h2><div class="tl" id="tl"><span class="muted">Elige una llamada.</span></div></section>
-  <section class="card"><h2>Lo que se declaró al marcador</h2><div id="sub" class="tl"></div><h2 style="margin-top:14px">Estado</h2><pre id="state" class="muted"></pre></section>
+  <section class="card"><h2>Llamadas</h2>
+    <label class="chk"><input type="checkbox" id="todas"> Incluir prácticas y arneses</label>
+    <div class="list scroll" id="calls"></div></section>
+  <section class="card"><h2 id="tltitle">Conversación y decisiones</h2><div class="tl scroll" id="tl"><span class="muted">Elige una llamada.</span></div></section>
+  <div class="col">
+    <section class="card"><h2>¿Por qué dijo eso?</h2><div id="why" class="scroll" style="max-height:52vh"><span class="muted">Pulsa cualquier frase del agente para ver de dónde salió: qué oyó, qué juzgó Jev, qué herramientas usó, qué guardia saltó y cuánto tardó cada paso.</span></div></section>
+    <section class="card"><h2>Latencia de la llamada</h2><div id="lat"><span class="muted">Sin datos todavía.</span></div></section>
+    <section class="card"><h2>Lo que se declaró al marcador</h2><div id="sub"></div><h3>Estado</h3><div id="state" class="muted"></div></section>
+  </div>
 </main>
 <script>
+"use strict";
 const $ = (i) => document.getElementById(i);
-const calls = new Map(); let sel = null;
+const TOKEN = (typeof location !== "undefined" && new URLSearchParams(location.search).get("t")) || "";
+const withT = (u) => TOKEN ? u + (u.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(TOKEN) : u;
+const FIRST = "fin de voz → primera palabra";
+const PRE = new Set(["fin de voz → turno cerrado", "fin de voz → definitivo del oído"]);
+const calls = new Map(); const activeMap = new Map(); let sel = null, selAgent = null, pastCount = 0;
+
 function el(t, c, x) { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; }
-function getCall(id) { if (!calls.has(id)) calls.set(id, { id, events: [], live: true, started: Date.now() }); return calls.get(id); }
+function getCall(id) { if (!calls.has(id)) calls.set(id, { id, events: [], live: true, started: Date.now() / 1000 }); return calls.get(id); }
+
+// ------------------------------------------------------------------ vocabulario
+const LANG = { en: "inglés", es: "español", ca: "catalán", gl: "gallego", eu: "euskera", fr: "francés", de: "alemán", it: "italiano", pt: "portugués", "es+en": "español e inglés" };
+const lang = (l) => LANG[l] || l || "—";
+const TOOLS = { identify_patient: "identificar al paciente", list_appointments: "ver sus citas", find_slots: "buscar huecos en la agenda", prepare_cancellation: "preparar la anulación",
+  prepare_registration: "preparar el alta", confirm_booking: "reservar (escribe en la agenda)", confirm_cancellation: "anular (escribe en la agenda)", confirm_registration: "dar de alta (escribe)",
+  nearest_site: "sede más cercana", clinic_info: "consultar el catálogo de la clínica", decline: "declinar", end_call: "terminar la llamada", escalate: "derivar a urgencias" };
+const FIELD = { national_id: "el DNI", nid: "el DNI", phone: "el teléfono", date_of_birth: "la fecha de nacimiento", dob: "la fecha de nacimiento", email: "el correo", address: "la dirección",
+  specialty: "la especialidad", identifier: "un identificador", full_name: "el nombre" };
+const JNAME = { act: "acto", intent: "intención", finished: "frase terminada", accepts: "acepta", red_flag: "alarma", oos: "fuera de límites", date_kind: "tipo de fecha", weekday: "día", part: "franja",
+  asks_question: "pregunta", specialty: "especialidad", for_other: "para otra persona", ails: "cuenta un síntoma", names_doctor_or_site: "nombra médico o sede", says_goodbye: "se despide",
+  site: "sede", provider_sound: "médico (por sonido)", insurer: "aseguradora", wants_register: "quiere darse de alta", lang: "lengua", picks: "elige" };
+const LASTK = { agent: "hablando", final: "ha hablado quien llama", perception: "Jev juzgando", state: "estado actualizado", latency: "midiendo", voice: "voz enviada", log: "nota", stop_audio: "se calla",
+  call_started: "descolgando", gate: "puerta", planner: "planificador", composed: "plantilla del código", fast_path: "carril rápido", declared: "declarado", report: "terminada", system2: "Sistema 2", partial: "escuchando", vad: "escuchando" };
+
+const short = (s, n) => { s = String(s == null ? "" : s); return s.length > n ? s.slice(0, n - 1) + "…" : s; };
+const q = (s, n) => "«" + short(s, n || 140) + "»";
+const mmss = (t) => t == null || isNaN(t) ? "" : `${String(Math.floor(Math.max(0, t) / 60)).padStart(2, "0")}:${String(Math.floor(Math.max(0, t) % 60)).padStart(2, "0")}`;
+const fmtMs = (ms) => ms == null || isNaN(ms) ? "" : ms >= 10000 ? (ms / 1000).toFixed(1) + " s" : Math.round(ms) + " ms";
+const rest = (v, skip) => Object.fromEntries(Object.entries(v).filter(([k]) => !["t", "kind", "turn"].concat(skip || []).includes(k)));
+function compact(o, n) { let s; try { s = JSON.stringify(o); } catch (e) { s = String(o); } return short(s, n || 220); }
+function args(a) {
+  if (!a || typeof a !== "object") return a == null ? "" : String(a);
+  return short(Object.entries(a).filter(([, v]) => v !== "" && v != null && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}=${typeof v === "object" ? JSON.stringify(v) : v}`).join(" · "), 170);
+}
+function parseMaybe(r) { if (typeof r !== "string") return r; try { return JSON.parse(r); } catch (e) { return r; } }
+function result(r) {
+  const o = parseMaybe(r);
+  if (o == null || o === "") return "sin resultado";
+  if (typeof o !== "object") return short(o, 170);
+  const bits = [];
+  if (o.error) bits.push("error: " + (typeof o.error === "string" ? o.error : JSON.stringify(o.error)));
+  if (o.status != null) bits.push("estado: " + o.status);
+  if (o.offer && o.offer.readback) bits.push(`oferta ${o.offer.offer_id || ""}: ${o.offer.readback}`);
+  if (o.readback) bits.push(String(o.readback));
+  if (o.patient_id) bits.push("paciente " + o.patient_id);
+  if (Array.isArray(o.appointments)) bits.push(o.appointments.length + " citas");
+  if (o.ask) bits.push("pedir: " + o.ask);
+  return short(bits.length ? bits.join(" · ") : JSON.stringify(o), 190);
+}
+const failed = (r) => /"error"|not[ _]found|blocked|denied|refus|missing|required|not allowed|need_/i.test(typeof r === "string" ? r : JSON.stringify(r || ""));
+const isGuard = (k) => /_(invented|ignored|corrected)$/.test(k || "") || ["truth_guard", "guard", "decline_coerced", "decline_oos", "decline_kept", "must_check_first", "name_placeholder", "name_is_doctor"].includes(k);
+const isLane = (k) => ["planner", "composed", "fast_path"].includes(k);
+const LANE = { planner: "planificador (modelo)", composed: "plantilla del código", fast_path: "carril rápido (sin modelo)" };
+
+// Cada evento de la traza → { cls, head, text, ms }. Lo que no se conoce se pinta genérico: nunca se tira nada.
+function describe(v) {
+  const k = v.kind || "?";
+  const G = (text) => ({ cls: "guard", head: k, text, guard: true });
+  switch (k) {
+    case "gate": return { cls: v.ok ? "ok" : "ko", head: (v.ok ? "✓ " : "✗ ") + "puerta · " + v.name, text: v.detail || "" };
+    case "tool": return { cls: "tool" + (failed(v.result) ? " warn" : ""), head: "herramienta · " + (TOOLS[v.name] || v.name), text: `${v.name}(${args(v.args)}) → ${result(v.result)}`, ms: v.ms };
+    case "planner": return { cls: "lane", head: `planificador · paso ${v.step}${v.terminal ? " (final)" : ""}`, text: v.said ? "dijo " + q(v.said, 200) : "decidió llamar a herramientas", ms: v.ms };
+    case "composed": return { cls: "lane", head: `plantilla del código · paso ${v.step}`, text: `tras ${(v.tools || []).join(", ") || "las herramientas"}, el código compuso ${q(v.said, 200)}`, ms: v.ms };
+    case "fast_path": return { cls: "lane", head: "carril rápido (sin modelo)", text: `${v.why || ""} → ${q(v.said, 200)}` };
+    case "speculation_reused": return { cls: "lane", head: "especulación reutilizada", text: `la respuesta ya estaba pensada mientras hablaba (${v.why || "coincide"}); ventaja ${fmtMs(v.head_start_ms)}${v.partial ? " · sobre el parcial " + q(v.partial, 80) : ""}` };
+    case "speculation_written": return { cls: "done", head: "lo especulado se escribe ahora", text: `en seco solo quedó anotado; con el turno de verdad se escribe: ${v.action}` };
+    case "would_write": return { cls: "dim", head: "en seco", text: `la especulación habría escrito «${v.action}»: no se escribe nada hasta el turno de verdad` };
+    case "prefetch_offer": return { cls: "tool dim", head: "oferta adelantada", text: `${args(v.args)} → ${result(v.result)}` };
+    case "prelookup": return { cls: "tool", head: "ficha buscada de antemano", text: `por ${v.by === "line" ? "el número que llama" : v.by}: ${v.patient} (parecido ${v.score})` };
+    case "identify_by_line": return { cls: "tool", head: "identificado por la línea", text: `${v.patient} (parecido ${v.score})` };
+    case "line": return { cls: "", head: "línea", text: `llama ${v.from_number || "número oculto"} · cerebro ${v.brain || "?"}${v.model ? " · " + v.model : ""} · fichas con ese número: ${(v.matches || []).join(", ") || "ninguna"}` };
+    case "greet_lang": return { cls: "", head: "saludo", text: `en ${lang(v.lang)} (${v.why || ""})` };
+    case "lang": return { cls: v.switched ? "warn" : "", head: "lengua", text: `${lang(v.lang)}${v.conf != null ? " · confianza " + v.conf : ""}${v.switched ? " · cambia de lengua" : ""}` };
+    case "jev_down": return { cls: "warn", head: "Jev no responde", text: `Flash-Lite hace de Sistema 1 mientras tanto · ${v.error || ""}` };
+    case "planner_error": return { cls: "warn", head: "error del planificador", text: short(v.error, 220) };
+    case "planner_retry": return { cls: "warn", head: "reintento del planificador", text: short(v.error, 220) };
+    case "filler": return { cls: "dim", head: "muletilla de arranque", text: `${q(v.text)}${v.marker ? " · " + v.marker : ""} (suena mientras se planifica)` };
+    case "ack": return { cls: "dim", head: "acuse", text: `${q(v.text)} (suena mientras trabajan las herramientas)` };
+    case "hold_ack": return { cls: "dim", head: "acuse de espera", text: `${q(v.text)} tras ${fmtMs(v.waited_ms)} sin respuesta lista` };
+    case "offer_rejected": return { cls: "warn", head: "oferta rechazada", text: `${(v.offers || []).join(", ") || "la última"}${v.accepts != null ? " · acepta " + v.accepts : ""}${v.act ? " · acto " + v.act : ""}: se retira de la mesa y se vuelve a buscar` };
+    case "offer": return { cls: "tool", head: "oferta", text: `${v.slot || ""} · ${v.provider || ""} · ${v.site || ""}${v.policy ? " · " + v.policy : ""}` };
+    case "availability": return { cls: "tool", head: "agenda", text: `${v.found} huecos · primero ${v.first || "—"}${(v.blocked || []).length ? " · bloqueado: " + compact(v.blocked, 80) : ""}` };
+    case "usual_doctor_option": return { cls: "", head: "su médico de siempre", text: compact(rest(v), 200) };
+    case "trato": return { cls: "", head: "tratamiento", text: compact(rest(v), 160) };
+    case "undo": return { cls: "warn", head: "deshacer", text: `seguía hablando: se deshace la respuesta y se une el turno · ${q(v.text, 120)}` };
+    case "barge_in": return { cls: "warn", head: "interrupción", text: `${v.act || ""} ${v.conf != null ? v.conf : ""} · ${q(v.text, 120)}` };
+    case "early_answer": return { cls: "", head: "respuesta temprana", text: `${q(v.text, 100)} · terminada ${v.finished}` };
+    case "site_heard": return { cls: "", head: "sede oída", text: `${v.site} (${v.conf})` };
+    case "site_unsure": return { cls: "warn", head: "sede dudosa", text: `${v.candidate} (${v.p}): no se da por buena` };
+    case "nearest_site": return { cls: "tool", head: "sede más cercana", text: `${v.address || "—"} → ${v.use || v.site || "sin sede clara"}` };
+    case "identity": return { cls: "", head: "identidad", text: `${v.step || ""}${v.n != null ? " (" + v.n + ")" : ""}` };
+    case "dni": return { cls: v.why && v.why !== "ok" ? "warn" : "", head: "DNI", text: v.derived ? `letra deducida: ${v.derived}` : `oído ${q(v.said, 40)} → ${v.normalized || "no válido"}${v.why ? " (" + v.why + ")" : ""}` };
+    case "date": return { cls: "", head: "fecha pedida", text: [v.date_kind, v.weekday !== "none" ? v.weekday : "", v.day, v.part].filter(Boolean).join(" · ") || "sin preferencia" };
+    case "appointments": return { cls: "tool", head: "sus citas", text: `${v.n} ${v.n === 1 ? "cita" : "citas"}` };
+    case "triage": return { cls: "", head: "triaje", text: `${q(v.complaint, 80)} → ${v.route}` };
+    case "fallback": return { cls: "warn", head: "plan alternativo", text: `${v.reason}${v.until ? " hasta " + v.until : ""} · ${v.found} huecos con otro médico` };
+    case "second_plan": return { cls: "", head: "segunda póliza", text: String(v.plan) };
+    case "decline_with_offer": return { cls: "warn", head: "declina con oferta abierta", text: (v.offers || []).join(", ") };
+    case "reg_correction": return { cls: "", head: "corrige el alta", text: (v.changed || []).join(", ") };
+    case "provider_by_sound": return { cls: "", head: "médico por el sonido", text: `${q(v.said, 60)} → ${v.provider}` };
+    case "patient_is_caller": return { cls: "", head: "el paciente es quien llama", text: String(v.patient || "") };
+    case "leave_alternative": return { cls: "", head: "médico de baja", text: `${v.provider} hasta ${v.until}: se ofrece alternativa` };
+    case "second_opinion": return { cls: v.used ? "warn" : "dim", head: "segunda opinión del oído", text: `${v.field}: ${q(v.text, 80)} · ${v.used ? "usada" : "descartada"}`, ms: v.ms };
+    case "system2": return { cls: "lane", head: "Sistema 2 (pregunta abierta)", text: `${q(v.question, 100)} → ${q(v.answer, 160)}` };
+    case "new_task": return { cls: "", head: "otra gestión", text: `en la misma llamada: ${v.intent}` };
+    case "intent_changed": return { cls: "", head: "cambia la intención", text: `${v.old} → ${v.new}` };
+    case "otra_forma": return { cls: "", head: "pide el dato de otra forma", text: FIELD[v.campo] || v.campo };
+    case "dejar_de_pedir": return { cls: "warn", head: "deja de pedir", text: `${FIELD[v.campo] || v.campo} tras ${v.veces} intentos` };
+    case "commit_on_hangup": return { cls: "done", head: "colgó tras aceptar", text: `se escribe la oferta aceptada (${v.offer}) antes de cerrar` };
+    case "declared": return { cls: "done", head: "declarado al marcador", text: (v.actions || []).join(", ") || "sin acción" };
+    // ---- guardias: el núcleo corrige al planificador
+    case "truth_guard": return G(v.executed ? `dijo que ya estaba hecho sin haberlo escrito; la puerta lo permitía y el núcleo lo escribió de verdad (${v.executed}) · ${q(v.said)}`
+      : v.times_not_from_tools ? `dijo horas que no salían de ninguna herramienta (${v.times_not_from_tools.join(", ")}) · ${q(v.said)}`
+      : `iba a dar por hecho algo que no se había escrito${v.claims != null ? " (afirma " + v.claims + ")" : ""}: se cambia por una confirmación · ${q(v.said)}`);
+    case "guard": return G(`cifras que nadie dictó, tachadas antes de sonar: ${v.redacted}`);
+    case "decline_coerced": return G(`quiso declinar por «${v.said}»; se declara el motivo que de verdad vieron las herramientas: ${(v.seen || []).join(", ")}`);
+    case "decline_oos": return G(`quiso declinar por «${v.said}», pero Jev había oído algo fuera de límites: ${v.oos}`);
+    case "decline_kept": return G(`quiso cambiar el motivo a «${v.said}»; se mantiene el ya declarado: ${v.kept}`);
+    case "must_check_first": return G(`quiso declinar sin mirar antes la ficha de ${v.patient || "quien llama"}: se le obliga a comprobar`);
+    case "name_placeholder": return G(`usó un nombre de relleno (${q(v.said, 40)}): no se toma como nombre`);
+    case "name_is_doctor": return G(`${q(v.said, 60)} es un médico de la clínica (${v.provider}), no el paciente`);
+    case "site_corrected": case "specialty_corrected": return G(`${k.startsWith("site") ? "sede" : "especialidad"} corregida: ${v.was || "ninguna"} → ${v.now} (manda lo que se oyó)`);
+    case "insurers_ignored": return G(`aseguradoras que nadie nombró: pidió ${compact(v.asked, 60)}, se quedan ${compact(v.kept, 60)}`);
+    case "constraints_ignored": return G(`condiciones de fecha que nadie pidió, descartadas: ${compact(rest(v), 140)}`);
+    case "date_from_ignored": return G(`fecha de inicio inventada (${v.dropped}) descartada${v.not_before ? "; se usa " + v.not_before : ""}`);
+  }
+  if (/_invented$/.test(k)) return G(`se inventó ${FIELD[v.field || k.replace(/_invented$/, "")] || k.replace(/_invented$/, "")}: «${v.dropped}» descartado${v.why ? " (" + v.why + ")" : ""}`);
+  if (/_ignored$/.test(k)) return G(`puso ${k.replace(/_ignored$/, "")} que nadie dijo: «${v.dropped != null ? v.dropped : compact(rest(v), 80)}» descartado`);
+  if (/_corrected$/.test(k)) return G(`${k.replace(/_corrected$/, "")}: ${compact(rest(v), 120)}`);
+  return { cls: "", head: k, text: compact(rest(v), 240), ms: v.ms };      // genérico: tipo + JSON compacto
+}
+
+// ------------------------------------------------------------------ juicios de Jev, en una sola forma
+function normJ(j) {
+  const out = [];
+  for (const [name, a] of Object.entries(j || {})) {
+    if (a == null) continue;
+    if (Array.isArray(a)) out.push({ name, c: a[0], conf: a[1] });
+    else if (typeof a === "number") out.push({ name, p: a });
+    else if (typeof a === "object") { if (a.t === "n" || (a.p != null && a.c == null)) out.push({ name, p: a.p }); else out.push({ name, c: a.c, conf: a.conf, top: a.top }); }
+  }
+  return out;
+}
+const jLabel = (x) => `${JNAME[x.name] || x.name} ${x.c != null ? x.c + " " : ""}${Number(x.c != null ? x.conf : x.p || 0).toFixed(2)}`;
+function jTop(js) {     // los que cuentan: acto e intención siempre; lo demás, solo si dice algo
+  const key = (x) => ["act", "intent"].includes(x.name) ? 2 : 0;
+  const says = (x) => x.c != null ? !["none", "any", "unclear", null].includes(x.c) || key(x) : (x.p >= 0.5 || ["accepts", "finished"].includes(x.name));
+  return js.filter(says).sort((a, b) => key(b) - key(a) || (b.c != null ? b.conf : b.p) - (a.c != null ? a.conf : a.p));
+}
+function percLine(p) {
+  const js = p.j, g = (n) => js.find((x) => x.name === n), a = g("act"), it = g("intent"), rf = g("red_flag"), oo = g("oos");
+  return `acto ${a ? a.c + " " + Number(a.conf || 0).toFixed(2) : "—"} · intención ${it ? it.c : "—"}${rf && rf.c && rf.c !== "none" ? " · alarma " + rf.c : ""}${oo && oo.c && oo.c !== "none" ? " · límite " + oo.c : ""}`;
+}
+
+// ------------------------------------------------------------------ de los eventos a una lista de piezas en orden
+const nrm = (s) => String(s || "").toLowerCase().normalize("NFKD").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function sameSaid(a, b) { a = nrm(a); b = nrm(b); if (!a || !b) return false; const n = Math.min(48, a.length, b.length); return a.slice(0, n) === b.slice(0, n) || (a.length > 12 && b.includes(a.slice(0, 40))) || (b.length > 12 && a.includes(b.slice(0, 40))); }
+
+function itemsFromHub(c) {
+  const t0 = (c.events.find((e) => e.type === "call_started") || c.events[0] || {}).ts || 0, out = [];
+  for (const e of c.events) {
+    const t = e.ts ? e.ts - t0 : null, ty = e.type;
+    if (ty === "vad" || ty === "partial" || ty === "state") continue;
+    if (ty === "call_started") out.push({ k: "log", t, msg: `llamada de ${e.from_number || "número oculto"}` });
+    else if (ty === "final") out.push({ k: "caller", t, text: e.text, stt_ms: e.stt_ms });
+    else if (ty === "perception") { if (e.phase !== "parcial") out.push({ k: "perc", t, text: e.text, ms: e.ms, phase: e.phase, hedged: e.hedged, j: normJ(e.j) }); }
+    else if (ty === "trace") { const v = e.event || {};
+      if (v.kind === "perception") out.push({ k: "perc", t, text: v.text, ms: v.ms, j: normJ(v.j), turn: v.turn });
+      else if (!["said", "latency", "voice", "stop_audio"].includes(v.kind)) out.push({ k: "ev", t, v }); }
+    else if (ty === "agent") out.push({ k: "agent", t, text: e.text, act: e.act, source: e.source, cached: e.cached });
+    else if (ty === "latency") out.push({ k: "lat", t, stage: e.stage, ms: e.ms, x: rest(e, ["type", "call_id", "ts", "stage", "ms"]) });
+    else if (ty === "voice") out.push({ k: "voice", t, source: e.source, first_ms: e.first_ms, gaps: e.gaps, ready: e.ready });
+    else if (ty === "log" || ty === "stop_audio") out.push({ k: "log", t, msg: e.msg || e.reason, cut: ty === "stop_audio" });
+    else if (ty === "report") out.push({ k: "log", t, msg: `llamada terminada: ${(e.report || {}).outcome || "sin resultado"}${(e.report || {}).ended_by ? " · " + e.report.ended_by : ""}` });
+    else out.push({ k: "ev", t, v: { kind: ty, ...rest(e, ["type", "call_id", "ts"]) } });
+  }
+  return out;
+}
+
+function itemsFromReport(d) {
+  const trace = (d.trace || []).filter((v) => v && typeof v === "object"), out = [];
+  for (const v of trace) {
+    const t = v.t;
+    if (v.kind === "perception") { out.push({ k: "caller", t, text: v.text, turn: v.turn }); out.push({ k: "perc", t, text: v.text, ms: v.ms, j: normJ(v.j), turn: v.turn }); }
+    else if (v.kind === "said") out.push({ k: "agent", t, text: v.text, turn: v.turn });
+    else if (v.kind === "latency") out.push({ k: "lat", t, stage: v.stage, ms: v.ms, x: rest(v, ["stage", "ms"]), turn: v.turn });
+    else if (v.kind === "voice") out.push({ k: "voice", t, source: v.source, first_ms: v.first_ms, gaps: v.gaps, ready: v.ready });
+    else if (v.kind === "stop_audio") out.push({ k: "log", t, msg: v.reason, cut: true });
+    else out.push({ k: "ev", t, v });
+  }
+  const tr = (d.transcript || []).filter((x) => typeof x === "string");
+  if (trace.some((v) => v.kind === "said") || !tr.length) return out;
+  // Informes antiguos: la transcripción no lleva horas. Se encaja cada frase del agente junto al evento que la produjo
+  // (planner/composed/fast_path/acuse con el mismo arranque) y, si no aparece, al final de su turno.
+  const isP = (x) => x.k === "caller";
+  if (!out.some(isP)) {        // ni percepciones: no hay con qué alinear → la conversación seguida y luego la traza
+    const conv = tr.map((x) => x.startsWith("Caller: ") ? { k: "caller", t: null, text: x.slice(8) } : { k: "agent", t: null, text: x.replace(/^Receptionist: /, "") });
+    return conv.concat(out.length ? [{ k: "sep", t: null, msg: "traza sin marcas de turno" }] : [], out);
+  }
+  let pos = 0;
+  const segEnd = (from) => { let i = from; while (i < out.length && !isP(out[i])) i++; return i; };
+  for (const x of tr) {
+    if (x.startsWith("Caller: ")) {
+      const text = x.slice(8); let i = pos;
+      while (i < out.length && !(isP(out[i]) && nrm(out[i].text) === nrm(text))) i++;
+      if (i >= out.length) { i = pos; while (i < out.length && !isP(out[i])) i++; }
+      if (i >= out.length) { out.splice(pos, 0, { k: "caller", t: null, text }); pos += 1; continue; }
+      pos = i + 1; while (pos < out.length && out[pos].k === "perc") pos++;
+    } else {
+      const text = x.replace(/^Receptionist: /, ""), end = segEnd(pos); let hit = -1;
+      for (let i = pos; i < end; i++) { const v = out[i].k === "ev" ? out[i].v : null; if (v && !out[i].used && (sameSaid(text, v.said) || sameSaid(text, v.text))) { hit = i; break; } }
+      if (hit >= 0) { out[hit].used = true;      // tras el evento y los que comparten su instante (especulación, guardias)
+        let at = hit + 1; while (at < end && out[at].k === "ev" && !isLane(out[at].v.kind) && !["ack", "filler", "hold_ack", "tool"].includes(out[at].v.kind) && out[at].t === out[hit].t) at++;
+        out.splice(at, 0, { k: "agent", t: out[hit].t, text, aligned: "por el texto" }); pos = at + 1; }
+      else { out.splice(end, 0, { k: "agent", t: end > 0 ? out[end - 1].t : 0, text, aligned: "por orden" }); pos = end + 1; }
+    }
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ piezas → turnos (quien llama → Jev → código → agente)
+function buildTurns(items) {
+  const turns = []; let cur = null, held = [];
+  const open = (it) => { cur = { n: turns.length, t: it.t, seq: [], callers: [], percs: [], agents: [], lats: [], voices: [] }; turns.push(cur); for (const h of held) { cur.seq.push(h); cur.lats.push(h); } held = []; return cur; };
+  for (const it of items) {
+    if (it.k === "sep") { open(it); cur.sep = it.msg; continue; }
+    if (it.k === "lat" && PRE.has(it.stage) && (!cur || cur.agents.length || cur.percs.length || !cur.callers.length)) { held.push(it); continue; }
+    if (it.k === "caller") { if (!cur || cur.agents.length || cur.percs.length || cur.n === 0 && cur.seq.some((x) => x.k === "ev")) open(it); else if (!cur.callers.length) cur.t = it.t; cur.callers.push(it); cur.seq.push(it); continue; }
+    if (it.k === "perc") {
+      if (cur && cur.percs.some((p) => nrm(p.text) === nrm(it.text))) { const p = cur.percs.find((p) => nrm(p.text) === nrm(it.text)); if (!p.j.length) p.j = it.j; continue; }
+      if (!cur || cur.agents.length || !cur.callers.length) { open(it); const cl = { k: "caller", t: it.t, text: it.text, synth: true }; cur.callers.push(cl); cur.seq.push(cl); }
+      else if (!cur.callers.some((x) => nrm(x.text) === nrm(it.text))) { const cl = { k: "caller", t: it.t, text: it.text, synth: true, joined: true }; cur.callers.push(cl); cur.seq.push(cl); }
+      cur.percs.push(it); cur.seq.push(it); continue;
+    }
+    if (!cur) open(it);
+    if (it.k === "agent") cur.agents.push(it); else if (it.k === "lat") cur.lats.push(it); else if (it.k === "voice") cur.voices.push(it);
+    cur.seq.push(it);
+  }
+  if (held.length && cur) for (const h of held) { cur.seq.push(h); cur.lats.push(h); }
+  turns.forEach((T, i) => { T.n = i; T.first = (T.lats.find((l) => l.stage === FIRST) || {}).ms; });
+  return turns;
+}
+
+// ¿Quién escribió esta frase? Se busca en el turno el evento cuyo texto arranca igual.
+function laneOf(T, a) {
+  const evs = T.seq.filter((x) => x.k === "ev").map((x) => x.v), spec = evs.find((v) => v.kind === "speculation_reused");
+  const tg = evs.find((v) => v.kind === "truth_guard" && !v.executed);
+  let v = evs.find((v) => isLane(v.kind) && sameSaid(a.text, v.said)), how = "exacto";
+  if (!v) { const s = evs.find((v) => ["ack", "filler", "hold_ack"].includes(v.kind) && sameSaid(a.text, v.text));
+    if (s || a.act === "ack") return { kind: (s || {}).kind || "ack", label: s && s.kind === "filler" ? "muletilla de arranque (frase fija del código)" : "acuse (frase fija del código, mientras trabajan las herramientas)", ev: s, spec: null }; }
+  if (!v && evs.some((x) => x.kind === "system2")) return { kind: "system2", label: "Sistema 2 (pregunta abierta, con la guardia de Jev)", ev: evs.find((x) => x.kind === "system2"), spec };
+  if (!v && tg) return { kind: "truth_guard", label: "el núcleo: la guardia de verdad sustituyó lo que iba a decir el planificador", ev: tg, spec };
+  if (!v && T.n === 0 && !T.callers.length) return { kind: "greeting", label: "saludo (plantilla del código)", ev: null, spec: null };
+  if (!v && T.agents.length > 1 && T.agents[T.agents.length - 1] !== a && nrm(a.text).split(" ").length <= 6)      // frase corta antes de la respuesta: muletilla o acuse sin evento propio
+    return { kind: "filler", label: "frase fija del código (muletilla o acuse mientras se prepara la respuesta) · atribución probable", ev: null, spec: null };
+  if (!v) { v = [...evs].reverse().find((x) => isLane(x.kind)); how = "probable"; }
+  if (!v) return { kind: "?", label: a.source ? `${a.source}` : "plantilla del código (no quedó evento de planificación en este turno)", ev: null, spec };
+  return { kind: v.kind, label: LANE[v.kind] + (how === "probable" ? " · atribución probable (el texto final no coincide letra a letra)" : ""), ev: v, spec };
+}
+
+// ------------------------------------------------------------------ latencias de la llamada
+function pct(xs, p) { if (!xs.length) return null; const s = [...xs].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.round(p * (s.length - 1)))]; }
+function latStats(items) {
+  const num = (x) => typeof x === "number" && isFinite(x);
+  const first = items.filter((x) => x.k === "lat" && x.stage === FIRST && num(x.ms)).map((x) => x.ms);
+  const jev = items.filter((x) => x.k === "perc" && num(x.ms)).map((x) => x.ms);
+  const plan = items.filter((x) => x.k === "ev" && isLane(x.v.kind) && num(x.v.ms)).map((x) => x.v.ms);
+  const tools = items.filter((x) => x.k === "ev" && x.v.kind === "tool" && num(x.v.ms) && x.v.ms > 0).map((x) => x.v.ms);
+  const S = (xs) => ({ n: xs.length, p50: pct(xs, 0.5), p90: pct(xs, 0.9), max: xs.length ? Math.max(...xs) : null });
+  return { first, F: S(first), jev: S(jev), plan: S(plan), tools: S(tools) };
+}
+
+// ------------------------------------------------------------------ pintar
+function evNode(it) {
+  const d = describe(it.v), n = el("div", "ev " + (d.cls || "") + (d.ms >= 1500 ? " slow" : ""));
+  n.append(el("span", "t", mmss(it.t))); const body = el("span");
+  if (d.guard) body.append(el("span", "tag", "El núcleo corrigió al planificador"));
+  body.append(el("b", "", d.head), document.createTextNode(d.text ? " · " + d.text : "")); n.append(body, el("span", "ms", fmtMs(d.ms)));
+  n.title = compact(it.v, 1200); return n;
+}
+function simpleNode(t, cls, head, text, ms) { const n = el("div", "ev " + cls); n.append(el("span", "t", mmss(t))); const b = el("span"); b.append(el("b", "", head), document.createTextNode(text ? " · " + text : "")); n.append(b, el("span", "ms", fmtMs(ms))); return n; }
+function itemNode(it, T, c) {
+  if (it.k === "caller") { const n = el("div", "msg caller", it.text); n.append(el("span", "when", `${mmss(it.t)} · quien llama${it.joined ? " · turno unido" : ""}${it.stt_ms ? " · oído " + fmtMs(it.stt_ms) : ""}`)); return n; }
+  if (it.k === "agent") { const n = el("div", "msg agent" + (selAgent === it.ord ? " sel" : ""), it.text); const L = laneOf(T, it);
+    const w = el("span", "when", `${mmss(it.t)} · ${L.label.split(" · ")[0].split(" (")[0]}${T.first != null && T.agents[0] === it ? " · primera palabra a los " + fmtMs(T.first) : ""}`); w.append(el("span", "why", "¿por qué? →")); n.append(w);
+    n.onclick = () => { selAgent = it.ord; setHash(); renderCall(true); }; return n; }
+  if (it.k === "perc") return simpleNode(it.t, "", "Jev" + (it.phase && it.phase !== "definitivo" ? " (" + it.phase + ")" : ""), percLine(it) + (it.hedged ? " · con reservas" : ""), it.ms);
+  if (it.k === "ev") return evNode(it);
+  if (it.k === "lat") return simpleNode(it.t, "dim" + (it.stage === FIRST && it.ms >= 2000 ? " slow" : ""), "⏱ " + it.stage, latExtra(it.x), it.ms);
+  if (it.k === "voice") return simpleNode(it.t, (it.gaps || []).length ? "warn" : "dim", "voz", `de ${it.source || "?"}${it.ready ? " · ya preparada" : ""}${(it.gaps || []).length ? " · huecos a mitad de frase: " + it.gaps.join(", ") + " ms" : ""}`, it.first_ms);
+  if (it.k === "log") return simpleNode(it.t, it.cut ? "warn" : "dim", it.cut ? "se calla" : "nota", it.msg);
+  return simpleNode(it.t, "", it.k, compact(it, 200));
+}
+function latExtra(x) { if (!x || !Object.keys(x).length) return ""; const o = { ...x }, b = [];
+  if (o.boca_ms != null) { b.push("la boca tardó " + fmtMs(o.boca_ms)); delete o.boca_ms; } if (o.cached != null) { b.push(o.cached ? "voz ya preparada" : "voz generada al momento"); delete o.cached; } if (o.source) { b.push("voz de " + o.source); delete o.source; }
+  if (Object.keys(o).length) b.push(compact(o, 80)); return b.join(" · "); }
+function model(c) {     // piezas y turnos de una llamada (con caché por número de eventos)
+  const key = c.report ? "r" : "h" + c.events.length;
+  if (c._key !== key) { c._items = c.report ? itemsFromReport(c.report) : itemsFromHub(c); c._turns = buildTurns(c._items); c._key = key;
+    let o = 0; for (const it of c._items) if (it.k === "agent") it.ord = o++; }      // la frase elegida se recuerda por su orden: los objetos se rehacen con cada evento
+  return c;
+}
+function renderCall(keepScroll) {
+  const c = calls.get(sel); if (!c) return; model(c);
+  const tl = $("tl"), atEnd = tl.scrollHeight - tl.scrollTop - tl.clientHeight < 80, top = tl.scrollTop; tl.innerHTML = "";
+  $("tltitle").textContent = `Conversación y decisiones · ${short(c.id, 18)}${c.live ? " · en curso" : ""}`;
+  if (!c._items.length) tl.append(el("span", "muted", c.loading ? "Cargando la llamada…" : "Todavía no hay eventos de esta llamada."));
+  c._turns.forEach((T, i) => {
+    const box = el("div", "turn" + (c.live && i === c._turns.length - 1 ? " hot" : "")), th = el("div", "th");
+    th.append(el("span", "", T.sep ? T.sep : T.callers.length ? `Turno ${T.n}` : "Descuelgue y saludo"), el("span", "", mmss(T.t)));
+    if (T.first != null) th.append(el("span", "pill" + (T.first >= 2000 ? " warn" : ""), "primera palabra " + fmtMs(T.first)));
+    const g = T.seq.filter((x) => x.k === "ev" && isGuard(x.v.kind)).length; if (g) th.append(el("span", "pill warn", g === 1 ? "1 corrección del núcleo" : g + " correcciones del núcleo"));
+    box.append(th); for (const it of T.seq) box.append(itemNode(it, T, c)); tl.append(box);
+  });
+  tl.scrollTop = keepScroll || !atEnd ? top : 1e9;
+  renderSide(c);
+}
+function renderSide(c) {
+  const sub = $("sub"); sub.innerHTML = "";
+  for (const it of c._items) if (it.k === "ev") { const v = it.v;
+    if (v.kind === "gate" && v.name === "envío") sub.append(el("div", "submit", (v.ok ? "✓ " : "✗ ") + v.detail));
+    if (v.kind === "declared") sub.append(el("div", "submit", "Declarado: " + ((v.actions || []).join(", ") || "sin acción")));
+    if (v.kind === "speculation_written" || v.kind === "commit_on_hangup") sub.append(el("div", "submit", describe(v).head + " · " + describe(v).text)); }
+  const rep = c.report || c.lastReport;
+  if (rep) { for (const a of rep.actions || []) sub.append(el("div", "submit", `${a.action}${a.status != null ? " → " + a.status : ""} · ${compact(rest(a, ["action", "status", "call_id"]), 160)}`));
+    sub.append(el("div", "muted", `Resultado: ${rep.outcome || "—"}${rep.reason ? " · motivo " + rep.reason : ""} · ${rep.duration_s != null ? rep.duration_s + " s" : ""} · colgó: ${rep.ended_by || "—"} · llamadas a la API: ${rep.api_calls != null ? rep.api_calls : "—"}`)); }
+  if (!sub.childNodes.length) sub.append(el("span", "muted", "Nada declarado todavía."));
+  const st = $("state"); st.innerHTML = ""; const state = c.state || (rep ? { lengua: lang(rep.language), paciente: rep.patient_id, cerebro: rep.brain, resultado: rep.outcome, motivo: rep.reason } : null);
+  if (state) { const tb = el("table", "kv"); for (const [k, v] of Object.entries(state)) { if (v == null || v === "" || (typeof v === "object" && !Object.keys(v).length)) continue; const tr = el("tr"); tr.append(el("td", "", k), el("td", "", typeof v === "object" ? compact(v, 120) : String(v))); tb.append(tr); } st.append(tb); }
+  renderLat(c); renderWhy(c);
+}
+function statNode(v, l, cls) { const s = el("div", "stat " + (cls || "")); const vv = el("div", "v", v == null ? "—" : String(Math.round(v))); if (v != null) vv.append(el("small", "", " ms")); s.append(vv, el("div", "l", l)); return s; }
+function renderLat(c) {
+  const box = $("lat"); box.innerHTML = ""; const L = latStats(c._items), grade = (ms) => ms == null ? "" : ms >= 2000 ? "bad" : ms <= 1200 ? "good" : "";
+  box.append(el("h3", "", `Fin de voz → primera palabra · ${L.F.n} ${L.F.n === 1 ? "turno medido" : "turnos medidos"}`));
+  const g = el("div", "stats"); g.append(statNode(L.F.p50, "mediana", grade(L.F.p50)), statNode(L.F.p90, "p90", grade(L.F.p90)), statNode(L.F.max, "máximo", grade(L.F.max))); box.append(g);
+  if (L.first.length) { const bars = el("div", "bars"), mx = Math.max(...L.first, 1); L.first.forEach((ms, i) => { const b = el("div", "bar" + (ms >= 2000 ? " bad" : "")); b.style.height = Math.max(4, Math.round(100 * ms / mx)) + "%"; b.title = `medida ${i + 1}: ${fmtMs(ms)}`; bars.append(b); }); box.append(bars); }
+  else box.append(el("div", "muted", c.report ? "Esta llamada se guardó antes de que las latencias quedaran en el informe: abajo, lo que sí se midió." : "Aún no se ha medido ningún turno."));
+  box.append(el("h3", "", "Por dentro (mediana · p90 · máximo)"));
+  const tb = el("table", "kv"); for (const [l, s] of [["Jev (percepción)", L.jev], ["Planificador o plantilla", L.plan], ["Herramientas", L.tools]]) { const tr = el("tr"); tr.append(el("td", "", `${l} · ${s.n}`), el("td", "", s.n ? `${fmtMs(s.p50)} · ${fmtMs(s.p90)} · ${fmtMs(s.max)}` : "—")); tb.append(tr); } box.append(tb);
+}
+function stepNode(title, ms, cls, body, raw) { const s = el("div", "step " + (cls || "")), hd = el("div", "hd"); hd.append(el("span", "", title), el("span", "ms", fmtMs(ms))); s.append(hd); if (body) s.append(el("div", "", body));
+  if (raw) { const d = el("details"); d.append(el("summary", "", "ver el detalle")); d.append(el("pre", "", raw)); s.append(d); } return s; }
+function whyModel(c, a) {     // la cadena causal de una frase del agente, solo con los eventos
+  const T = c._turns.find((t) => t.agents.includes(a)); if (!T) return null;
+  const upto = T.seq.indexOf(a), L = laneOf(T, a), evs = T.seq.filter((x) => x.k === "ev");
+  return { T, lane: L, callers: T.callers, percs: T.percs, tools: evs.filter((x) => x.v.kind === "tool" || x.v.kind === "prefetch_offer"), guards: evs.filter((x) => isGuard(x.v.kind)),
+    steps: evs.filter((x) => !isGuard(x.v.kind)), lats: T.lats, voices: T.voices, before: T.seq.slice(0, upto < 0 ? T.seq.length : upto) };
+}
+function renderWhy(c) {
+  const box = $("why"); if (selAgent == null) return; const A = c._items.find((x) => x.k === "agent" && x.ord === selAgent), W = A && whyModel(c, A); if (!W) return; box.innerHTML = "";
+  box.append(el("p", "quote a", A.text));
+  box.append(el("h3", "", "1 · Respondía a"));
+  if (W.callers.length) W.callers.forEach((x) => box.append(el("p", "quote", x.text))); else box.append(el("div", "muted", "A nadie todavía: es lo que dice al descolgar."));
+  box.append(el("h3", "", "2 · Lo que entendió Jev"));
+  if (!W.percs.length) box.append(el("div", "muted", "Sin juicio de Jev en este turno."));
+  for (const p of W.percs) { const ch = el("div", "chips"); jTop(p.j).slice(0, 9).forEach((x) => ch.append(el("span", "chip" + (["red_flag", "oos"].includes(x.name) ? " alarm" : ["act", "intent"].includes(x.name) ? " hi" : ""), jLabel(x))));
+    box.append(el("div", "muted", `Jev tardó ${fmtMs(p.ms) || "—"}${p.phase ? " · " + p.phase : ""}`), ch);
+    const d = el("details"); d.append(el("summary", "", `los ${p.j.length} juicios`)); d.append(el("pre", "", p.j.map(jLabel).join("\n"))); box.append(d); }
+  box.append(el("h3", "", "3 · Lo que hizo el código"));
+  const chain = W.T.seq.filter((x) => x.k === "ev" && !["filler", "ack", "hold_ack"].includes(x.v.kind));
+  if (!chain.length) box.append(el("div", "muted", "Ningún paso registrado en este turno."));
+  for (const x of chain) { const v = x.v, d = describe(v), made = W.lane.ev === v;
+    if (v.kind === "tool") box.append(stepNode("Herramienta · " + (TOOLS[v.name] || v.name), v.ms, failed(v.result) ? "ko" : "", result(v.result), `${v.name}\nargumentos: ${JSON.stringify(v.args, null, 1)}\nresultado: ${typeof parseMaybe(v.result) === "object" ? JSON.stringify(parseMaybe(v.result), null, 1) : v.result}`));
+    else if (d.guard) box.append(stepNode("El núcleo corrigió al planificador · " + v.kind, null, "guard", d.text, JSON.stringify(rest(v), null, 1)));
+    else box.append(stepNode(d.head + (made ? " · de aquí salió la frase" : ""), d.ms, made ? "made" : "", d.text)); }
+  box.append(el("h3", "", "4 · Quién escribió la frase"));
+  box.append(stepNode(W.lane.label, W.lane.ev && W.lane.ev.ms, "made", W.lane.ev && W.lane.ev.why ? W.lane.ev.why : A.aligned ? "Llamada antigua: frase encajada en el tiempo " + A.aligned + "." : ""));
+  if (W.lane.spec) box.append(stepNode("Especulación reutilizada", W.lane.spec.head_start_ms, "", `Se pensó mientras aún hablaba (${W.lane.spec.why || "coincide"}): esos milisegundos son la ventaja ganada.`));
+  if (!W.guards.length) box.append(el("div", "muted", "Ninguna guardia saltó en este turno."));
+  box.append(el("h3", "", "5 · Cuánto tardó cada paso"));
+  const tb = el("table", "kv"), row = (k, v) => { const tr = el("tr"); tr.append(el("td", "", k), el("td", "", v)); tb.append(tr); };
+  W.lats.forEach((l) => row(l.stage, fmtMs(l.ms) + (l.x && l.x.boca_ms != null ? ` (boca ${fmtMs(l.x.boca_ms)}${l.x.cached ? ", voz ya preparada" : ""})` : "")));
+  W.percs.forEach((p) => row("Jev", fmtMs(p.ms))); chain.filter((x) => typeof x.v.ms === "number" && x.v.kind !== "latency").forEach((x) => row(x.v.kind === "tool" ? x.v.name : describe(x.v).head, fmtMs(x.v.ms)));
+  W.voices.forEach((v) => row(`voz (${v.source || "?"}) · primer audio`, fmtMs(v.first_ms) || "—"));
+  if (!tb.childNodes.length) row("sin medidas en este turno", "—"); box.append(tb);
+}
+
+function outcomeCls(o) { return !o ? "grey" : /NO_ACTION|ESCALATE|DECLINE/i.test(o) ? "gold" : "" ; }
 function renderList() {
   const box = $("calls"); box.innerHTML = "";
-  [...calls.values()].sort((a, b) => b.started - a.started).forEach((c) => {
-    const d = el("div", "item" + (c.live ? " live" : "") + (sel === c.id ? " sel" : ""));
-    d.append(el("div", "", c.id.slice(0, 14) + "…"));
-    d.append(el("div", "muted", (c.live ? "en curso" : (c.outcome || "terminada")) + (c.from ? " · " + c.from : "")));
-    d.onclick = () => { sel = c.id; renderList(); renderCall(); }; box.append(d);
+  [...calls.values()].sort((a, b) => (b.live - a.live) || (b.started - a.started)).forEach((c) => {
+    const d = el("div", "item" + (c.live ? " live" : "") + (sel === c.id ? " sel" : "")), top = el("div", "top"), s = c.summary || {};
+    top.append(el("span", "id", short(c.id, 16)), el("span", "pill " + (c.live ? "" : outcomeCls(c.outcome)), c.live ? "en curso" : (c.outcome || "terminada"))); d.append(top);
+    const bits = [c.started ? new Date(c.started * 1000).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" }) : "", c.from, s.language ? lang(s.language) : "", s.turns ? s.turns + " turnos" : "", s.duration_s ? Math.round(s.duration_s) + " s" : "", s.lat_p50 != null ? "mediana " + fmtMs(s.lat_p50) : ""].filter(Boolean);
+    d.append(el("div", "muted", bits.join(" · "))); if (s.reason) d.append(el("div", "muted", "motivo: " + s.reason));
+    d.onclick = () => select(c.id); box.append(d);
   });
+  if (!calls.size) box.append(el("span", "muted", "Aún no hay llamadas."));
 }
-function line(e) {
-  const t = e.type;
-  if (t === "agent") return el("div", "msg agent", e.text);
-  if (t === "final") return el("div", "msg caller", e.text);
-  if (t === "perception") { const j = e.j || {}; const a = j.act ? `${j.act.c} ${j.act.conf.toFixed(2)}` : ""; const it = j.intent ? `${j.intent.c}` : "";
-    return el("div", "ev", `Jev ${e.ms} ms · acto ${a} · intención ${it}${j.red_flag && j.red_flag.c !== "none" ? " · alarma " + j.red_flag.c : ""}${j.oos && j.oos.c !== "none" ? " · límite " + j.oos.c : ""}`); }
-  if (t === "trace") { const v = e.event; if (v.kind === "gate") { const d = el("div", "gate"); d.append(el("span", v.ok ? "ok" : "ko", v.ok ? "✓ " : "✗ ")); d.append(el("span", "", `${v.name}: ${v.detail}`)); return d; }
-    if (["offer", "availability", "fallback", "date", "triage", "dni", "identity", "line", "second_plan", "nearest_site", "intent_changed", "lang"].includes(v.kind)) return el("div", "ev", `${v.kind} ${JSON.stringify(Object.fromEntries(Object.entries(v).filter(([k]) => !["t", "kind"].includes(k))))}`); return null; }
-  if (t === "latency") return el("div", "ev", `⏱ ${e.stage}: ${e.ms} ms`);
-  if (t === "voice" && (e.source === "gemini" || (e.gaps && e.gaps.length)))
-    return el("div", "ev", `· voz de ${e.source}${e.gaps && e.gaps.length ? ` · huecos a mitad de frase: ${e.gaps.join(", ")} ms` : ""}`);
-  if (t === "log" || t === "stop_audio") return el("div", "ev", "· " + (e.msg || e.reason));
-  return null;
+function renderActive() {
+  const box = $("activas"); box.innerHTML = ""; const rows = [...activeMap.values()].sort((a, b) => (a.started || 0) - (b.started || 0)), n = rows.length;
+  $("nactive").textContent = String(n); $("meter").className = "meter" + (n ? "" : " zero"); $("meterlbl").textContent = n === 1 ? "llamada en curso" : "llamadas a la vez";
+  $("stats").textContent = `${pastCount} guardadas · ${n ? "una fila por llamada, abajo" : "ninguna en curso"}`;
+  const now = Date.now() / 1000;
+  for (const a of rows) { const r = el("div", "arow" + (sel === a.call_id ? " sel" : "")), last = String(a.last || "");
+    const k = last.startsWith("tool:") ? "herramienta · " + (TOOLS[last.slice(5)] || last.slice(5)) : LASTK[last] || (last ? describe({ kind: last }).head : "—");
+    r.append(el("span", "dot on"), el("span", "mono", short(a.call_id, 16)), el("span", "num", mmss(now - (a.started || now))), el("span", "", `turno ${a.turn != null ? a.turn : "—"}`), el("span", "k x", k),
+      el("span", "x", `${lang(a.lang)}${a.last_latency_ms != null ? " · " + fmtMs(a.last_latency_ms) : ""}`), el("span", "said x", a.hearing ? "oyendo: " + a.hearing : a.agent_said ? "agente: " + a.agent_said : a.caller_said ? "llama: " + a.caller_said : (a.from_number || "")));
+    r.onclick = () => select(a.call_id); box.append(r); }
 }
-function renderCall() {
-  const c = calls.get(sel); if (!c) return;
-  const tl = $("tl"); tl.innerHTML = ""; const sub = $("sub"); sub.innerHTML = "";
-  for (const e of c.events) { const n = line(e); if (n) tl.append(n);
-    if (e.type === "trace" && e.event.kind === "gate" && e.event.name === "envío") sub.append(el("div", "submit", e.event.detail));
-    if (e.type === "state") $("state").textContent = JSON.stringify(e.state, null, 1); }
-  tl.scrollTop = 1e9;
+function touchActive(e) {     // el mismo resumen que lleva el servidor, al ritmo de los eventos
+  if (e.type === "call_started" && !activeMap.has(e.call_id)) activeMap.set(e.call_id, { call_id: e.call_id, from_number: e.from_number, started: e.ts });
+  if (e.type === "report") { activeMap.delete(e.call_id); return; }
+  const a = activeMap.get(e.call_id); if (!a) return;
+  if (e.type === "partial") { a.hearing = short(e.text, 120); return; } if (e.type === "vad") return;
+  if (e.type === "trace") { const v = e.event || {}; a.last = v.kind === "tool" ? "tool:" + v.name : v.kind; if (typeof v.turn === "number") a.turn = v.turn; if (v.kind === "lang") a.lang = v.lang; } else a.last = e.type;
+  if (e.type === "state" && e.state) a.lang = e.state.lang || a.lang;
+  if (e.type === "agent") { a.agent_said = e.text; a.hearing = ""; } if (e.type === "final") { a.caller_said = e.text; a.hearing = ""; }
+  if (e.type === "latency" && e.stage === FIRST) a.last_latency_ms = e.ms;
 }
+
+// ------------------------------------------------------------------ datos: directo y guardadas
+let raf = 0; const dirty = { list: false, call: false, active: false };
+function schedule(what) { dirty[what] = true; if (raf) return; raf = requestAnimationFrame(() => { raf = 0; if (dirty.active) renderActive(); if (dirty.list) renderList(); if (dirty.call) renderCall(); dirty.list = dirty.call = dirty.active = false; }); }
 function onEvent(e) {
-  const c = getCall(e.call_id); c.events.push(e);
-  if (e.type === "call_started") { c.from = e.from_number; c.started = e.ts * 1000; }
-  if (e.type === "report") { c.live = false; c.outcome = e.report.outcome; }
-  if (!sel) sel = c.id;
-  renderList(); if (sel === c.id) renderCall();
+  if (!e || !e.call_id) return; const c = getCall(e.call_id); touchActive(e); schedule("active");
+  if (e.type === "vad" || e.type === "partial") return;
+  c.events.push(e); if (c.events.length > 3000) c.events.splice(0, 500);
+  if (e.type === "call_started") { c.from = e.from_number; c.started = e.ts; c.live = true; c.report = null; schedule("list"); }
+  if (e.type === "state") c.state = e.state;
+  if (e.type === "report") { c.live = false; c.outcome = (e.report || {}).outcome; c.lastReport = e.report; schedule("list"); }
+  if (!sel) { sel = c.id; schedule("list"); }
+  if (sel === c.id) schedule("call");
+}
+function setHash() { try { history.replaceState(null, "", "#llamada=" + encodeURIComponent(sel || "") + (selAgent != null ? "&frase=" + selAgent : "")); } catch (e) { /* sin historial */ } }
+async function select(id, frase) {
+  sel = id; selAgent = frase != null ? frase : null; setHash(); $("why").innerHTML = ""; $("why").append(el("span", "muted", "Pulsa cualquier frase del agente para ver de dónde salió."));
+  const c = getCall(id); renderList(); renderActive(); renderCall();
+  if (c.past && !c.report && !c.loading) { c.loading = true;
+    try { const d = await fetch(withT(`/api/calls/${encodeURIComponent(id)}`)).then((r) => r.json()); if (d && d.live) { c.events = d.events || []; c.past = false; } else c.report = d; } catch (e) { c.error = String(e); }
+    c.loading = false; c._key = null; if (sel === id) { renderCall(true); const b = frase != null && document.querySelector && document.querySelector(".agent.sel"); if (b) b.scrollIntoView({ block: "center" }); } }
+  else if (c.live && !c.events.some((e) => e.type === "call_started")) {      // consola abierta a media llamada: se pide lo que falta
+    try { const d = await fetch(withT(`/api/events/${encodeURIComponent(id)}`)).then((r) => r.json()); if ((d.events || []).length > c.events.length) { c.events = d.events; c._key = null; if (sel === id) renderCall(); } } catch (e) { /* sigue con lo que hay */ }
+  }
+}
+function syncActive(list) {
+  const ids = new Set(list.map((a) => a.call_id));
+  for (const a of list) { activeMap.set(a.call_id, { ...(activeMap.get(a.call_id) || {}), ...a }); const c = getCall(a.call_id); c.live = true; c.from = c.from || a.from_number; c.started = a.started || c.started; }
+  for (const id of [...activeMap.keys()]) if (!ids.has(id)) activeMap.delete(id);
+  renderActive();
 }
 async function loadPast() {
-  const r = await fetch("/api/calls").then((r) => r.json());
-  $("stats").textContent = `${r.active.length} en curso · ${r.past.length} guardadas`;
-  for (const p of r.past) if (!calls.has(p.call_id)) calls.set(p.call_id, { id: p.call_id, events: [], live: false, outcome: p.outcome, from: p.from_number, started: 0, past: true });
-  renderList();
+  try { const r = await fetch(withT("/api/calls" + ($("todas").checked ? "?todas=1" : ""))).then((r) => r.json()); pastCount = (r.past || []).length;
+    for (const p of r.past || []) { const c = calls.get(p.call_id) || { id: p.call_id, events: [], past: true }; if (!calls.has(p.call_id)) calls.set(p.call_id, c);
+      if (!activeMap.has(p.call_id)) c.live = false; c.outcome = p.outcome; c.from = p.from_number; c.started = c.started && !c.past ? c.started : (p.ended_ts || 0) - (p.duration_s || 0); c.summary = p; if (!c.events.length) c.past = true; }
+    syncActive(r.active || []); renderList();
+  } catch (e) { $("stats").textContent = "sin conexión con el servidor"; }
 }
+async function pollActive() { try { syncActive(await fetch(withT("/api/active")).then((r) => r.json())); } catch (e) { /* lo dirá el punto de conexión */ } }
 function connect() {
-  const ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/monitor`);
-  ws.onmessage = (m) => onEvent(JSON.parse(m.data)); ws.onclose = () => setTimeout(connect, 1500);
+  const ws = new WebSocket(withT(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/monitor`));
+  ws.onopen = () => { $("wsdot").className = "dot on"; }; ws.onmessage = (m) => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.error(e); } };
+  ws.onclose = () => { $("wsdot").className = "dot off"; setTimeout(connect, 1500); };
 }
-document.addEventListener("click", async (ev) => {
-  const c = calls.get(sel); if (c && c.past && !c.events.length) {
-    const d = await fetch(`/api/calls/${c.id}`).then((r) => r.json());
-    c.events = (d.transcript || []).map((t) => t.startsWith("Caller: ") ? { type: "final", text: t.slice(8) } : { type: "agent", text: t.replace(/^Receptionist: /, "") })
-      .concat((d.trace || []).map((v) => ({ type: "trace", event: v })));
-    renderCall();
-  }
-});
-loadPast(); connect(); setInterval(loadPast, 10000);
+if (typeof window !== "undefined" && !window.__CONSOLA_TEST__) {
+  const H = new URLSearchParams(location.hash.slice(1));      // enlace directo a una llamada y a una frase: #llamada=CA…&frase=3
+  $("todas").onchange = loadPast; loadPast().then(() => { if (H.get("llamada")) { const c = getCall(H.get("llamada")); if (!c.events.length) { c.past = true; c.live = false; } select(c.id, H.get("frase") != null ? Number(H.get("frase")) : null); } }); connect(); setInterval(loadPast, 10000); setInterval(pollActive, 2000); setInterval(() => { if (activeMap.size) renderActive(); }, 1000);
+}
 </script>
 </body>
 </html>
