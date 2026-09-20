@@ -67,23 +67,30 @@ Lo usa también `panel.py nas --reiniciar` cuando el agente es local. Si se rein
 Los dos están diagnosticados con su traza; ninguno tiene arreglo enviado, y el motivo es el mismo: **el arnés de
 texto no los produce**, así que cualquier guardia que se les ponga solo se puede medir por lo que estorba.
 
-**1. Reserva doble** (`noise`, 20-09 02:01 · `calls/eee5b071-8012-580b-8c98-73aeaf853a55.json`). Quien llama pidió
-que le repitieran la hora por el ruido; el agente volvió a buscar y reservó una SEGUNDA cita de ginecología para la
-misma paciente. Dos `BOOK` donde el marcador esperaba uno: cero.
+**1. Reserva doble** — el defecto más caro que queda, y **no tiene arreglo con un guardia**.
 
-Cuatro intentos, todos medidos con la misma semilla y el mismo arnés (referencia 31/32):
+Visto dos veces en rondas puntuadas: `noise` (20-09 02:01, `calls/eee5b071-8012-580b-8c98-73aeaf853a55.json`) y
+`no_slot_free` (20-09 03:09, `calls/3aa57bb5-285d-5f0f-9aa5-21e8205cb6b7.json`). El segundo enseña el mecanismo
+entero: el transcriptor oyó «**Play That One**», Jev lo dio por confirmación (`confirm` 0,86 · «sí» 0,73), se
+reservó una cita que la paciente no había aceptado, ella dijo «Oh, no. I didn't agree to that time» y el agente
+reservó **otra** en vez de sustituirla. Dos `BOOK` donde se esperaba uno: cero.
 
-| dónde se corta | acierto | dobles |
+**Por qué no se arregla con un guardia.** La escritura ya salió a la API de Prosper: no se puede retirar. Así que
+el único arreglo posible es no escribir la primera, y eso es apretar la puerta. Se probó, con reproducción
+(`no_acepte_eso`, que lo saca 14 veces de 20):
+
+| | acierto | dobles |
 |---|---|---|
-| bloquear en `confirm_booking` | 27/32 | 0 |
-| lo mismo, idempotente al repetir | 28/32 | 0 |
-| bloquear en `find_slots` | 23/32 | 0 |
-| mirando lo REALMENTE enviado (sin contaminar con la sombra) | 29/32 | 0 |
+| referencia | 3/20 | 14 |
+| exigir una palabra de asentimiento, salvo que Jev lo vea clarísimo | 2/20 | 10 |
+| exigirla siempre | 1/20 | 11 |
 
-La referencia ya daba 0 dobles, así que el guardia no arreglaba nada y solo cobraba. Se añadió incluso un
-comportamiento a medida (`pide_que_repita_tras_reservar`): **0 dobles en 24 llamadas**. Es un fenómeno del camino de
-VOZ (ruido de fondo, puerta que falla y el planificador volviendo a buscar), y quien lo quiera cazar tendrá que
-hacerlo con `voice_harness.py` y ruido, no en texto.
+Baja el defecto pero **no sube el acierto**: la primera reserva sigue saliendo y la corrección crea la segunda.
+Esto pide **escritura de verdad en dos fases** —poder sustituir una reserva hecha en la misma llamada— no un
+guardia más. Es trabajo de diseño, no de madrugada.
+
+Antes se habían probado además cuatro guardias sobre la SEGUNDA reserva, todos peores que no hacer nada
+(27/32, 28/32, 23/32 y 29/32 frente a 31/32).
 
 **2. Colgar tras contestar una pregunta** (`the_questions`, 20-09 02:23, señal `agent_silence` ·
 `calls/e6031651-3035-5830-832f-a18aada2f209.json`). El llamante preguntó el horario de Arenal Norte, el agente lo
