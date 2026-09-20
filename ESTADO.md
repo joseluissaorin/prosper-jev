@@ -56,6 +56,36 @@ python3 panel.py reiniciar     # espera a que no haya ronda NI llamada, y entonc
 Lo usa también `panel.py nas --reiniciar` cuando el agente es local. Si se reinicia a mano, comprobar antes
 `ronda activa` en `panel.py estado`.
 
+## Dos defectos vistos en rondas puntuadas que el arnés de texto NO reproduce
+
+Los dos están diagnosticados con su traza; ninguno tiene arreglo enviado, y el motivo es el mismo: **el arnés de
+texto no los produce**, así que cualquier guardia que se les ponga solo se puede medir por lo que estorba.
+
+**1. Reserva doble** (`noise`, 20-09 02:01 · `calls/eee5b071-8012-580b-8c98-73aeaf853a55.json`). Quien llama pidió
+que le repitieran la hora por el ruido; el agente volvió a buscar y reservó una SEGUNDA cita de ginecología para la
+misma paciente. Dos `BOOK` donde el marcador esperaba uno: cero.
+
+Cuatro intentos, todos medidos con la misma semilla y el mismo arnés (referencia 31/32):
+
+| dónde se corta | acierto | dobles |
+|---|---|---|
+| bloquear en `confirm_booking` | 27/32 | 0 |
+| lo mismo, idempotente al repetir | 28/32 | 0 |
+| bloquear en `find_slots` | 23/32 | 0 |
+| mirando lo REALMENTE enviado (sin contaminar con la sombra) | 29/32 | 0 |
+
+La referencia ya daba 0 dobles, así que el guardia no arreglaba nada y solo cobraba. Se añadió incluso un
+comportamiento a medida (`pide_que_repita_tras_reservar`): **0 dobles en 24 llamadas**. Es un fenómeno del camino de
+VOZ (ruido de fondo, puerta que falla y el planificador volviendo a buscar), y quien lo quiera cazar tendrá que
+hacerlo con `voice_harness.py` y ruido, no en texto.
+
+**2. Colgar tras contestar una pregunta** (`the_questions`, 20-09 02:23, señal `agent_silence` ·
+`calls/e6031651-3035-5830-832f-a18aada2f209.json`). El llamante preguntó el horario de Arenal Norte, el agente lo
+dijo **bien** (09:00–19:00, comprobado contra la API) y, al oír «Right, thanks.», llamó a `end_call` sin preguntar
+si necesitaba algo más. La llamada acabó en `NO_ACTION(out_of_scope)` a los 55 s. Los turnos del agente fueron de
+0,5-0,6 s, así que `agent_silence` no es latencia nuestra. Candidato a arreglo: exigir `says_goodbye` más alto para
+colgar cuando no se ha hecho nada en la llamada — sin medir, y con riesgo de no colgar nunca.
+
 ## Si algo va mal
 
 ```bash
