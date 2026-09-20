@@ -1573,7 +1573,8 @@ class Conv:
         rid, why = next(iter(ex.items()))
         if rid in COVERAGE and r.get("next_step", "").startswith("ask whether"):
             return self._sp("no_fit_plan", why=why[0].upper() + why[1:])
-        return self._sp("no_fit", why=why)
+        why = why.strip().rstrip(".")
+        return self._sp("no_fit", why=why[:1].lower() + why[1:])
 
     def c_identify_patient(self, r: dict) -> str | None:
         st = r.get("status", "")
@@ -1789,6 +1790,13 @@ CLINIC VOCABULARY
             scored = sorted(((name_sim(full_name, f"{m['given_name']} {m['first_surname']} {m['second_surname']}"), m) for m in ms), key=lambda x: -x[0])
             best, sc = scored[0][1], scored[0][0]
             second = scored[1][0] if len(scored) > 1 else 0.0
+            if label == "caller_line" and (not is_caller or self.s.for_other) and sc < 0.8:
+                # la línea es de quien LLAMA. Si la cita es para otra persona, que la ficha de esa línea se parezca a medias al
+                # nombre dicho no identifica a nadie: práctica del 20-09 (08:51), la madre llama por su hija Sonia, el oído
+                # entiende «I'm on Pardo Medina», «Sonia Pardo Medina» se parece 0,59 a «Amparo Medina Domínguez» y se reservó
+                # para la madre. Solo vale si el nombre casa de verdad (un hijo con el teléfono de su madre en la ficha).
+                self._log("line_is_not_the_patient", line_patient=best["patient_id"], score=round(sc, 2))
+                continue
             if (len(ms) == 1 and (sc >= 0.45 or (label == "national_id" and sc >= 0.3))) or (sc >= 0.6 and sc - second >= 0.15):
                 if label == "caller_line":
                     self._log("identify_by_line", patient=best["patient_id"], score=round(sc, 2))

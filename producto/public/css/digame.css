@@ -492,3 +492,7 @@ body.en-llamada .cuna, body.en-acta .cuna { display: none; }
   .pliego-vivo { border: 0; box-shadow: none; max-height: none; width: auto; }
   .pliego-cuerpo { overflow: visible; }
 }
+
+/* modo captura (?captura): la portada no ocupa toda la ventana, para fotografiar la página entera */
+.captura .portada, .captura .portada-capa { min-height: 900px; height: 900px; }
+.captura .acta-linea, .captura .burbuja { animation: none; }
