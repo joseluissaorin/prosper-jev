@@ -42,6 +42,20 @@ Para verlo: `journalctl --user -u puntuadas -f`. Para pararlo: `systemctl --user
 - **Réplica local** (`agent/replica.py`, los 77 casos publicados contra la API real sin enviar nada): 26/26 en los
   problemas principales de la última pasada.
 
+## Nunca reiniciar a ciegas
+
+El 20-09 a las 00:16 un despliegue cayó entre el lanzamiento de la ronda puntuada de `nearest_site` y su
+primera llamada. `active_calls` era 0, así que la guarda de entonces dejó pasar el reinicio: los cuatro casos
+se perdieron sin dejar ni traza local y la ronda se quedó colgada en `running`. **Doce puntos.** Entre dos
+llamadas de la misma ronda también hay hueco, así que mirar `active_calls` no basta: hay que mirar la ronda.
+
+```bash
+python3 panel.py reiniciar     # espera a que no haya ronda NI llamada, y entonces reinicia
+```
+
+Lo usa también `panel.py nas --reiniciar` cuando el agente es local. Si se reinicia a mano, comprobar antes
+`ronda activa` en `panel.py estado`.
+
 ## Si algo va mal
 
 ```bash

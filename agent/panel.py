@@ -140,6 +140,50 @@ def save(run: dict) -> None:
 
 # ---------------------------------------------------------------- NAS
 
+def _local_agent() -> bool:
+    """¿El agente corre en esta misma máquina? (En el NAS, sí: no hace falta SSH.)"""
+    try:
+        urllib.request.urlopen("http://127.0.0.1:7860/health", timeout=3).read()
+        return True
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ronda_activa(p: "Panel | None") -> bool:
+    """¿Hay una ronda (puntuada o de práctica) en marcha para el equipo?"""
+    if p is None:
+        return False
+    try:
+        return bool(p.req("GET", f"/teams/{p.team}")["eligibility"]["active_run"])
+    except Exception:  # noqa: BLE001
+        return True          # si no se sabe, se da por ocupado: reiniciar a ciegas es lo que cuesta puntos
+
+
+def restart_seguro(p: "Panel | None" = None, espera_s: int = 900) -> bool:
+    """Reinicia el agente SOLO cuando no hay ni llamada en curso ni ronda en marcha.
+
+    El 20-09-2026 a las 00:16 un despliegue cayó justo entre el lanzamiento de la ronda puntuada de
+    `nearest_site` y su primera llamada: `active_calls` era 0, así que la guarda de entonces dejó pasar el
+    reinicio, y los cuatro casos se perdieron sin dejar ni traza local. Doce puntos. Entre dos llamadas de la
+    misma ronda también hay hueco: hay que mirar la ronda, no solo la llamada."""
+    t0 = time.time()
+    while time.time() - t0 < espera_s:
+        if ronda_activa(p):
+            time.sleep(10)
+            continue
+        try:
+            libre = b'"active_calls":0' in urllib.request.urlopen("http://127.0.0.1:7860/health", timeout=5).read()
+        except Exception:  # noqa: BLE001
+            libre = False
+        if libre and not ronda_activa(p):          # se vuelve a mirar: la ronda pudo entrar mientras tanto
+            subprocess.run(["systemctl", "--user", "restart", "prosper-agent", "prosper-agent-local"], check=False)
+            print("     reiniciado prosper-agent (sin ronda ni llamada en curso).")
+            return True
+        time.sleep(5)
+    print("     no reinicio: no ha habido hueco sin ronda ni llamada.")
+    return False
+
+
 def nas_check(restart: bool = False, p: Panel | None = None) -> bool:
     """¿El agente del NAS (puerto 7860, el que llama Prosper) corre el último commit? Uvicorn no recarga solo."""
     cmd = (f"cd {NAS_REPO} && git log -1 --format='%h %ct' && "
@@ -164,7 +208,9 @@ def nas_check(restart: bool = False, p: Panel | None = None) -> bool:
         # llamadas (active_calls == 0 en /health), que es lo que tarda Prosper en marcar la siguiente
         script = ("for i in $(seq 1 600); do curl -s 127.0.0.1:7860/health | grep -q '\"active_calls\":0' && "
                   "systemctl --user restart prosper-agent && exit 0; sleep 1; done; exit 1")
-        print("     esperando a que no haya ninguna llamada en curso para reiniciar…")
+        print("     esperando a que no haya ronda ni llamada en curso para reiniciar…")
+        if _local_agent():
+            return restart_seguro(p)
         if subprocess.run(["ssh", NAS, script], timeout=700).returncode != 0:
             print("     no reinicio: el agente no ha quedado libre en diez minutos.")
             return False
@@ -296,7 +342,11 @@ def main() -> None:
     s.add_argument("runs", nargs="+")
     s = sub.add_parser("nas")
     s.add_argument("--reiniciar", action="store_true")
+    sub.add_parser("reiniciar", help="reinicia el agente en cuanto no haya ronda ni llamada en curso")
     a = ap.parse_args()
+    if a.cmd == "reiniciar":
+        restart_seguro(Panel())
+        return
     if a.cmd == "nas":
         nas_check(restart=a.reiniciar)
         return
