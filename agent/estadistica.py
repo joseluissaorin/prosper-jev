@@ -56,11 +56,11 @@ def resumen_ms(xs) -> dict:
 
 
 def pct(x: float | None) -> str:
-    return "—" if x is None else f"{100 * x:.1f} %".replace(".", ",")
+    return "s. d." if x is None else f"{100 * x:.1f} %".replace(".", ",")
 
 
 def ms(x) -> str:
-    return "—" if x is None else f"{x:.0f} ms"
+    return "s. d." if x is None else f"{x:.0f} ms"
 
 
 class Repeticiones:
