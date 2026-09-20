@@ -385,6 +385,9 @@ BEHAVIORS = {
     "escueto": "Answer in as few words as possible.",
     "pregunta_primero": "Start by asking a question about the clinic (e.g. the opening hours of a site) before saying what you want.",
     "comprueba_tras_aceptar": "After you accept, if the receptionist does not clearly confirm, say 'Hello? So is it booked?'",
+    "pregunta_y_gracias_seco": "Begin with a question about the clinic (opening hours of a site, or which days a doctor is there). When they "
+                               "answer it, reply ONLY 'Right, thanks.' and nothing else — do not say goodbye and do not say what you want. "
+                               "Say what you actually came for only if they ask whether you need anything else.",
     "pide_que_repita_tras_reservar": "Right after the receptionist tells you the appointment is booked, say you did not catch it because of "
                                      "the noise and ask them to tell you the date and time once more. Do NOT ask for a different "
                                      "appointment: you are happy with the one you have.",
@@ -399,7 +402,8 @@ INCOMPATIBLE = {"acepta_y_pregunta": {"adversario", "reglas"}, "acepta_con_condi
                 "comprueba_tras_aceptar": {"adversario", "reglas"},
                 "se_identifica_a_si_mismo": {"simple", "medico_sede", "fechas", "reglas", "cambiar", "triaje", "idiomas",
                                              "adversario", "alta", "preguntas"},
-                "pide_que_repita_tras_reservar": {"adversario", "reglas", "alta", "triaje"}}
+                "pide_que_repita_tras_reservar": {"adversario", "reglas", "alta", "triaje"},
+                "pregunta_y_gracias_seco": {"adversario", "triaje"}}
 
 
 def pick_behaviors(fam, rng):

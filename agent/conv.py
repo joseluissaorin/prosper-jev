@@ -321,6 +321,7 @@ class St2:
     seen_rules: list = field(default_factory=list)    # reglas que la API devolvió de verdad (las únicas declarables)
     for_other: bool = False                           # la cita es para otra persona, no para quien llama
     offer_pushed: bool = False                        # ya se le ha dicho una vez que no se rinda con una oferta abierta
+    bye_pushed: bool = False                          # ya se le ha dicho una vez que no cuelgue sin saber a qué llamaban
     oos_seen: str | None = None                       # Jev vio en algún turno algo que hay que declinar (ventas, datos de otro…)
     checked: bool = False                             # ¿se ha llegado a mirar la agenda? (sin eso no hay regla que declarar)
     wants_appt: bool = False                          # quien llama ha pedido una cita con sus palabras
@@ -1166,7 +1167,7 @@ class Conv:
             s.msgs.append(types.Content(role="model", parts=[types.Part(text=said)]))
             return said, False, ev
         # despedirse: sin nada abierto sobre la mesa y con Jev viéndolo claro, no hace falta pensarlo
-        if p.n("says_goodbye") >= 0.85 and act in ("end_call", "confirm", "backchannel") and not s.prepared and \
+        if p.n("says_goodbye") >= (0.9 if self.nada_hecho() else 0.85) and act in ("end_call", "confirm", "backchannel") and not s.prepared and \
                 not [k for k in s.menu if s.offers.get(k, {}).get("status") == "open"] and not self.needs_check():
             said = self._sp("goodbye")
             s.msgs.append(types.Content(role="model", parts=[types.Part(text=said)]))
@@ -2166,7 +2167,23 @@ CLINIC VOCABULARY
         real de la clínica y el marcador, que compara literalmente, lo daría por fallado."""
         return bool(self.s.oos_seen)
 
+    def nada_hecho(self) -> bool:
+        """¿La llamada no ha llegado a nada y quien llama no ha dicho todavía a qué llamaba?"""
+        s = self.s
+        return not (s.submitted or s.decline or s.escalated or s.wants_appt or s.patients or s.oos_seen)
+
     async def t_end_call(self) -> dict:
+        s = self.s
+        # Colgar después de contestar una pregunta, sin que hayan dicho a qué llamaban, es perder la llamada
+        # entera. Medido en la ronda puntuada de `the_questions` del 20-09: el agente dio el horario bien y, al
+        # oír «Right, thanks.», colgó. En el arnés, con ese mismo comportamiento, 19 de 24 llamadas morían en
+        # tres turnos. Una despedida de verdad sí cuelga; un «gracias» a secas, no: se pregunta si falta algo.
+        adios = self._p.n("says_goodbye", 0.0) if self._p is not None else 1.0
+        if self.nada_hecho() and adios < 0.9 and not s.bye_pushed:
+            s.bye_pushed = True
+            self._log("colgar_pronto", says_goodbye=round(adios, 2))
+            return {"error": "they have only thanked you for an answer; they have not said what they called about and nothing has been done "
+                             "in this call. Do not end it: ask whether there is anything else you can help them with."}
         need = self.must_check_first()
         return {"error": need} if need else {"status": "ending after your goodbye"}
 
