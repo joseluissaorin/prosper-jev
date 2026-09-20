@@ -130,6 +130,20 @@ def parse_dob(text: str) -> str | None:
     return None
 
 
+def dob_dicha(text: str, iso: str) -> bool:
+    """¿Están en lo dicho el día, el mes y el año de esta fecha, aunque la persona se haya corregido por el camino?
+    «el trece de julio de dos mil veintidós… no, perdón, dos mil veintitrés» dice 2023-07-13, pero la lectura de corrido
+    se queda con la primera versión. Aquí basta con que las tres piezas se hayan dicho."""
+    try:
+        y, mo, d = (int(x) for x in iso.split("-"))
+    except Exception:  # noqa: BLE001
+        return False
+    t = words_to_numbers(text)
+    nums = {int(n) for n in re.findall(r"\d+", t)}
+    mes = any(re.search(rf"\b{name}\b", t) for name, n in MONTHS.items() if n == mo) or bool(re.search(rf"[/-]0?{mo}[/-]", t))
+    return mes and d in nums and (y in nums or y % 100 in nums)
+
+
 def parse_day(text: str, today: date) -> str | None:
     """Fecha de cita sin año («Monday the 12th of October», «el 3 de octubre», «October 2nd») → la próxima en el
     calendario, en ISO. Solo con mes explícito: «el 3» a secas lo decide la extracción."""
