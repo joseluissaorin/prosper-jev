@@ -305,7 +305,7 @@
       const r = await fetch("/api/acta", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(actaPropia) });
       const j = await r.json();
       if (!j.id) throw new Error("sin id");
-      const url = `${location.origin}/acta.html?v=${j.id}`;
+      const url = `${location.origin}/acta?v=${j.id}`;
       try { await navigator.clipboard.writeText(url); } catch {}
       b.textContent = "Enlace copiado";
       ahora(`Su acta queda treinta días en <a href="${url}">${url.replace(/^https?:\/\//, "")}</a>`);
@@ -314,7 +314,7 @@
   function imprimir() {
     if (!actaPropia) return;
     try { localStorage.setItem("digame-acta-propia", JSON.stringify(actaPropia)); } catch {}
-    window.open("/acta.html?mia=1", "_blank");
+    window.open("/acta?mia=1", "_blank");
   }
 
   // ------------------------------------------------------------------ sin micrófono: una llamada real, con sus tiempos
@@ -331,7 +331,7 @@
       vistas.push(id); if (vistas.length >= pool.length) vistas = [];
       const acta = await (await fetch(`/datos/actas/${id}.json`)).json();
       estado(`<span class="vivo">Llamada real</span> · ${A.esc(A.fechaLarga(acta.fecha))} · ${A.esc(A.IDIOMA[acta.idioma] || acta.idioma)} · ${A.reloj(acta.dur)}`);
-      $("btn-acta-entera").href = `/acta.html?id=${encodeURIComponent(id)}`;
+      $("btn-acta-entera").href = `/acta?id=${encodeURIComponent(id)}`;
       arena().forma("escucha");
       if (repro) repro.parar();
       repro = A.reproducir($("pliego-acta"), acta, {

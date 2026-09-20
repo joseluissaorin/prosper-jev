@@ -993,7 +993,13 @@ class Conv:
         oo, oc = p.c("oos")
         if oo and oo != "none" and oc >= 0.5:
             s.oos_seen = oo
-        if p.n("for_other") >= 0.5:
+        if re.search(r"\b(for (me|myself)|it'?s for me|para mi|soy yo|yo mism[oa]|per a mi)\b", fold(text)) and p.n("for_other") < 0.5:
+            # «It is for myself»: lo dice quien llama. Sin esto la marca no se quitaba nunca y, tras un juicio dudoso de Jev,
+            # la llamada acababa en «no puedo reservarle» (arnés del 20-09, preguntas-025)
+            if s.for_other:
+                self._log("for_other_cleared", said=text[:80])
+            s.for_other = False
+        elif p.n("for_other") >= 0.5:
             s.for_other = True
         sp, spc = p.c("specialty")
         if sp and sp != "none" and spc >= 0.8:
