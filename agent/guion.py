@@ -84,7 +84,7 @@ async def una(nombre: str, rep: int = 0) -> dict:
             break
     await b.finalize()
     kinds = [e["kind"] for e in b.s.trace]
-    rep_ = b.report() if hasattr(b, "report") else {}
+    rep_ = await b.report()
     print(f"  · trato {b.s.trato} · médico de siempre ofrecido: {'usual_doctor_option' in kinds} · preguntó qué cambiar: {'ask_what_to_change' in kinds}"
           f" · acciones {[a.get('action') for a in rep_.get('actions', [])]} · motivo {rep_.get('reason')}")
     return {"guion": nombre, "rep": rep, "ms": ms, "trato": b.s.trato, "kinds": kinds, "transcript": b.s.history, "trace": b.s.trace}

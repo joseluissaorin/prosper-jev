@@ -900,6 +900,11 @@ class Conv:
         out += pre[1]
         # 3. el planificador, con los juicios de Jev, la lectura determinista y lo ya identificado como señales
         sig = self.signals(text, p) + (f"\n[Kernel lookup, already verified] {' · '.join(pre[0])}" if pre[0] else "")
+        if not s.patients and len(getattr(self, "_line", None) or []) == 1 and not s.for_other:
+            # la línea apunta a UNA ficha: basta el nombre para reconocer a quien llama. Pedirle además el DNI es
+            # interrogar a alguien a quien la clínica ya conoce. El nombre no se le da al planificador: lo dice quien llama.
+            sig += ("\n[Kernel] The calling line matches exactly one record on file. If the appointment is for the caller, do NOT ask for a "
+                    "DNI or date of birth: just ask who you are speaking to, and call identify_patient with the name they give.")
         if not self._dry or True:
             pf = await self.prefetch_offer(p)
             if pf:
