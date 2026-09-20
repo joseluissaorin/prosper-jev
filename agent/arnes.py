@@ -14,6 +14,7 @@ Este arnés los busca a escala:
     ../.venv/bin/python arnes.py --familia fechas reglas --n 80
     ../.venv/bin/python arnes.py --comportamiento acepta_y_pregunta --n 40
     ../.venv/bin/python arnes.py --repetir calls/arnes_XXXX.json   # vuelve a pasar los casos que fallaron
+    ../.venv/bin/python arnes.py --n 40 --rep 5      # los MISMOS 40 casos cinco veces: qué falla siempre y qué a veces
 
 Siempre contra la clínica SIMULADA: nunca toca la API real de Prosper.
 """
@@ -50,6 +51,7 @@ from brain import Brain  # noqa: E402
 if os.environ.get("AGENT") == "v2":
     from conv import Conv as Brain  # noqa: E402,F811
 from jev import JEV, noul  # noqa: E402
+from estadistica import Repeticiones  # noqa: E402
 
 F, TODAY, PATS = E.F, E.TODAY, E.F.PATIENTS
 HERE = Path(__file__).parent
@@ -664,6 +666,12 @@ def report(res, path):
               + " · percepción total " + q([t["perceive"] for t in T]) + " · política+API " + q([t["policy"] for t in T])
               + f" · extracción esperada en {sum(1 for t in T if t['ex_ms'])}/{len(T)} turnos ({q([t['ex_ms'] for t in T if t['ex_ms']])})"
               + f" · lectura determinista en {sum(t['det'] for t in T)}")
+    # varianza entre repeticiones (--rep N): los mismos casos generados, N veces. «Pasa» = respuesta correcta Y sin infracciones
+    agg = Repeticiones()
+    for r in res:
+        agg.caso(f"{r['family']} · {r['id']} · {','.join(r['behaviors'])[:60]}", r.get("rep", 0), r["ok"] and not r["viol"])
+        agg.latencias(r.get("rep", 0), [t["ms"] for t in r["turns"]])
+    print("\n".join(agg.informe("ARNÉS · VARIANZA ENTRE REPETICIONES (pasa = correcto y sin infracciones)")))
     print(f"Detalle: {path}")
 
 
@@ -684,23 +692,24 @@ async def main():
         seed, n = int(arg("--seed", "1")), int(arg("--n", "100"))
         cases = generate(n, seed, listarg("--familia"), listarg("--comportamiento"))
     sem = asyncio.Semaphore(int(arg("--par", "16")))
-    print(f"{len(cases)} llamadas generadas (semilla {seed}), {sem._value} a la vez", flush=True)
+    reps = max(1, int(arg("--rep", "1")))
+    print(f"{len(cases)} llamadas generadas (semilla {seed}) × {reps}, {sem._value} a la vez", flush=True)
     t0 = time.perf_counter()
     res, done = [], 0
 
-    async def one(c):
+    async def one(c, rep=0):
         nonlocal done
         r = await run_one(c, sem)
-        r["seed_run"] = seed
+        r["seed_run"], r["rep"] = seed, rep
         res.append(r)
         done += 1
         mark = "✅" if r["ok"] and not r["viol"] else ("⚠️ " if r["ok"] else "❌")
-        print(f"[{done:3}/{len(cases)}] {mark} {r['id']:16} {','.join(r['behaviors'])[:48]:48} {r['why'][:60]} "
+        print(f"[{done:3}/{len(cases) * reps}] {mark} {r['id']:16} {','.join(r['behaviors'])[:48]:48} {r['why'][:60]} "
               f"{'· ' + ', '.join(sorted({v[1] for v in r['viol']})) if r['viol'] else ''}", flush=True)
-    await asyncio.gather(*[one(c) for c in cases])
+    await asyncio.gather(*[one(c, i) for c in cases for i in range(reps)])
     path = HERE / "calls" / f"arnes_{int(time.time())}.json"
     path.parent.mkdir(exist_ok=True)
-    dump(sorted(res, key=lambda r: r["id"]), path)
+    dump(sorted(res, key=lambda r: (r["id"], r["rep"])), path)
     report(res, path)
     print(f"({time.perf_counter() - t0:.0f} s)")
 

@@ -28,6 +28,7 @@ sys.path.insert(0, str(HERE.parent / "demo"))
 from google.genai import types  # noqa: E402
 
 import fake_api as F  # noqa: E402
+from estadistica import Repeticiones  # noqa: E402
 from brain import Brain  # noqa: E402
 from prosper_api import MADRID, parse_slot  # noqa: E402
 from system2 import CLIENT  # noqa: E402
@@ -337,6 +338,8 @@ async def main():
     sem = asyncio.Semaphore(int(os.environ.get("PAR", "8")))
     t0 = time.perf_counter()
     res = await asyncio.gather(*[run_case(c, sem) for c in chosen for _ in range(reps)])
+    for i, r in enumerate(res):
+        r["rep"] = i % reps                     # gather conserva el orden: caso a caso, repetición a repetición
     by = {}
     for r in res:
         by.setdefault(r["problem"], []).append(r)
@@ -350,6 +353,12 @@ async def main():
     if L:
         q = lambda k: (statistics.median(x[k] for x in L), sorted(x[k] for x in L)[int(0.9 * (len(L) - 1))])
         print("Latencia por turno (mediana / p90, ms): " + " · ".join(f"{k} {q(k)[0]:.0f}/{q(k)[1]:.0f}" for k in ("jev", "ex", "perceive", "policy")))
+    # varianza entre repeticiones: k/N por caso, Wilson, inestables aparte de los que fallan siempre, latencia por turno
+    agg = Repeticiones()
+    for r in res:
+        agg.caso(f"{r['problem']} · {r['id']}", r["rep"], r["ok"])
+        agg.latencias(r["rep"], [l["perceive"] + l["policy"] for l in r["lat"]])
+    print("\n".join(agg.informe("EVALUADOR · VARIANZA ENTRE REPETICIONES (latencia: percepción + política por turno)")))
     out = HERE / "calls" / f"eval_{int(time.time())}.json"
     out.parent.mkdir(exist_ok=True)
     out.write_text(json.dumps(res, ensure_ascii=False, indent=1, default=str))
