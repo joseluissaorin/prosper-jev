@@ -1977,6 +1977,9 @@ CLINIC VOCABULARY
             return {"error": "this appointment is for someone else, not for the caller: that patient_id is the caller's own record. "
                              "Ask for the PATIENT's full name and their date of birth or DNI, call identify_patient with is_caller=false, "
                              "and use that patient_id."}
+        if not specialty and s.specialty:
+            specialty = s.specialty                       # la dijo quien llama («metge de capçalera») y Jev la oyó: no hace falta que el planificador la repita
+            self._log("specialty_filled", specialty=specialty)
         if not specialty:
             return {"error": "need the specialty (or a doctor)"}
         if not s.specialty and not provider_id and purpose == "book" and not s.seen_rules:
@@ -2546,6 +2549,14 @@ CLINIC VOCABULARY
         if reason in self.WEAK and self.s.decline and self.s.decline not in self.WEAK:
             self._log("decline_kept", said=reason, kept=self.s.decline)
             return {"status": "noted; it is reported when the call ends"}
+        if reason == "no_availability" and "no_availability" not in s.seen_rules and s.patients and not s.asked.get("_sin_buscar"):
+            # «no tenemos disponibilidad con su mutua» sin que NINGUNA búsqueda haya vuelto vacía es una regla inventada
+            # (arnés del 20-09, idiomas-031: find_slots había dado error por faltarle la especialidad). Inventar una regla
+            # para seguir la conversación es lo que más penaliza el jurado.
+            s.asked["_sin_buscar"] = 1
+            self._log("decline_unchecked", said=reason)
+            return {"error": "no search has come back empty in this call, so you cannot say there is no availability. Call find_slots "
+                             "properly (patient_id and specialty, no invented dates) and read back what it returns."}
         # una regla concreta que ninguna herramienta ha confirmado se comprueba antes de declararla, si se puede
         if reason not in ("out_of_scope", "provider_not_found") and reason not in self.s.seen_rules:
             need = self.must_check_first()

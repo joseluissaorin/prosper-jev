@@ -122,7 +122,7 @@ function result(r) {
   return short(bits.length ? bits.join(" · ") : JSON.stringify(o), 190);
 }
 const failed = (r) => /"error"|not[ _]found|blocked|denied|refus|missing|required|not allowed|need_/i.test(typeof r === "string" ? r : JSON.stringify(r || ""));
-const isGuard = (k) => /_(invented|ignored|corrected)$/.test(k || "") || ["truth_guard", "guard", "decline_coerced", "decline_oos", "decline_kept", "must_check_first", "name_placeholder", "name_is_doctor", "research_blocked", "dni_no_pedido", "line_is_not_the_patient"].includes(k);
+const isGuard = (k) => /_(invented|ignored|corrected)$/.test(k || "") || ["truth_guard", "guard", "decline_coerced", "decline_oos", "decline_kept", "must_check_first", "name_placeholder", "name_is_doctor", "research_blocked", "dni_no_pedido", "line_is_not_the_patient", "decline_unchecked", "insurer_invented", "loop_broken"].includes(k);
 const isLane = (k) => ["planner", "composed", "fast_path"].includes(k);
 const LANE = { planner: "planificador (modelo)", composed: "plantilla del código", fast_path: "carril rápido (sin modelo)" };
 
@@ -199,6 +199,7 @@ function describe(v) {
     case "decline_kept": return G(`quiso cambiar el motivo a «${v.said}»; se mantiene el ya declarado: ${v.kept}`);
     case "must_check_first": return G(`quiso declinar sin mirar antes la ficha de ${v.patient || "quien llama"}: se le obliga a comprobar`);
     case "line_is_not_the_patient": return G(`la línea es de quien llama (${v.line_patient}) y la cita es para otra persona: un parecido de ${v.score} no identifica al paciente`);
+    case "decline_unchecked": return G(`quiso decir que no hay disponibilidad sin que ninguna búsqueda hubiera vuelto vacía: se le obliga a buscar de verdad`);
     case "research_blocked": return G(`quiso buscar otro hueco sin que nadie rechazara el que acababa de leer (acto: ${v.act}): se le obliga a contestar lo que dijo quien llama`);
     case "dni_no_pedido": return G(`iba a pedir el DNI a alguien cuya línea ya está en una ficha: se pregunta con quién se habla · ${q(v.was, 100)}`);
     case "name_invented": return G(`buscó a ${q(v.said, 60)}, un nombre que nadie había dicho: se pregunta el nombre`);

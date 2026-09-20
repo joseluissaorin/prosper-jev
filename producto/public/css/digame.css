@@ -505,3 +505,75 @@ body.en-llamada .cuna, body.en-acta .cuna { display: none; }
 /* modo captura (?captura): la portada no ocupa toda la ventana, para fotografiar la página entera */
 .captura .portada, .captura .portada-capa { min-height: 900px; height: 900px; }
 .captura .acta-linea, .captura .burbuja { animation: none; }
+
+/* ------------------------------------------------------------------ Sistema 1, el núcleo y Sistema 2 */
+.triptico { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0; margin-top: 3rem; border: 1.5px solid var(--tinta); }
+.panel { padding: 1.4rem 1.4rem 1.6rem; border-right: 1.5px solid var(--tinta); display: flex; flex-direction: column; position: relative; background: var(--papel); }
+.panel:last-child { border-right: 0; }
+.panel.nucleo { background: var(--tinta); color: var(--papel); }
+.panel .cifra-sis { font-size: clamp(5rem, 11vw, 10rem); font-style: italic; font-weight: 500; line-height: .8; letter-spacing: -.06em; color: var(--terracota); font-variant-numeric: lining-nums; }
+.panel.nucleo .cifra-sis { font-family: var(--mono); font-style: normal; font-weight: 600; font-size: clamp(3.4rem, 7.4vw, 6.6rem); letter-spacing: -.12em; line-height: 1.1; color: var(--papel); }
+.panel h3 { margin: 1rem 0 .15rem; font-size: clamp(1.5rem, 2.3vw, 2rem); font-weight: 500; letter-spacing: -.025em; line-height: 1; }
+.panel .quien-es { font-family: var(--mono); font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--apagado); margin-bottom: .9rem; display: block; }
+.panel.nucleo .quien-es { color: #9b978c; }
+.panel p { margin: 0 0 .8rem; font-size: 1rem; line-height: 1.44; }
+.panel ul { list-style: none; margin: auto 0 0; padding: .8rem 0 0; border-top: 1px solid color-mix(in srgb, currentColor 35%, transparent); font-family: var(--mono); font-size: .68rem; line-height: 1.75; }
+.panel ul b { font-weight: 600; color: var(--terracota); }
+.panel.nucleo ul b { color: var(--papel); }
+
+.turno { margin-top: clamp(3rem, 6vw, 5rem); }
+.turno h3, .banco h3, .contraste h3 { margin: .6rem 0 .5rem; font-size: clamp(1.8rem, 3.4vw, 2.8rem); font-weight: 500; letter-spacing: -.03em; line-height: 1.02; max-width: 22ch; }
+.turno > p, .banco > p { color: var(--apagado); max-width: 44rem; margin: 0 0 1.6rem; }
+.pista-turno { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: .45rem 1rem; align-items: center; font-family: var(--mono); font-size: .68rem; position: relative; }
+.pista-turno .nom { color: var(--apagado); letter-spacing: .06em; text-transform: uppercase; font-size: .62rem; }
+.pista-turno .carril { position: relative; height: 1.5rem; background: repeating-linear-gradient(to right, transparent 0 calc(10% - 1px), var(--filete) calc(10% - 1px) 10%); }
+.pista-turno .carril i { position: absolute; top: .2rem; bottom: .2rem; background: var(--tinta); display: block; }
+.pista-turno .carril i.t { background: var(--terracota); }
+.pista-turno .carril i.a { background: var(--azul); }
+.pista-turno .carril i.h { background: none; border: 1px solid var(--tinta); }
+.pista-turno .carril span { position: absolute; top: 50%; transform: translateY(-50%); font-size: .6rem; white-space: nowrap; padding-left: .4rem; color: var(--tinta); }
+.pista-turno .calla { grid-column: 2; position: relative; height: 1.4rem; }
+.pista-turno .calla b { position: absolute; left: 70%; top: 0; bottom: -11.5rem; border-left: 1.5px dashed var(--terracota); padding-left: .4rem; color: var(--terracota); font-weight: 600; white-space: nowrap; z-index: 2; pointer-events: none; }
+.turno .moraleja { margin-top: 1.4rem; font-size: clamp(1.15rem, 1.9vw, 1.5rem); line-height: 1.32; max-width: 46rem; letter-spacing: -.01em; }
+.turno .moraleja b { font-weight: 500; font-style: italic; color: var(--terracota); }
+
+.banco { margin-top: clamp(3rem, 6vw, 5rem); border: 1.5px solid var(--tinta); box-shadow: 10px 10px 0 var(--tinta); background: #FBF9F4; padding: clamp(1.2rem, 3vw, 2.2rem); }
+.banco-cuerpo { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: clamp(1.4rem, 4vw, 3.4rem); }
+.banco label { font-family: var(--mono); font-size: .64rem; letter-spacing: .12em; text-transform: uppercase; color: var(--apagado); display: block; margin: 1rem 0 .4rem; }
+.chips { display: flex; flex-wrap: wrap; gap: .4rem; }
+.chips button { background: none; border: 1px solid var(--filete); padding: .4rem .6rem; font-family: var(--serif); font-style: italic; font-size: .98rem; line-height: 1.2; text-align: left; transition: border-color .15s, background .15s; }
+.chips button:hover { border-color: var(--tinta); }
+.chips button.activo { background: var(--tinta); border-color: var(--tinta); color: var(--papel); }
+.banco-frase { display: flex; border: 1.5px solid var(--tinta); }
+.banco-frase input { flex: 1; min-width: 0; border: 0; background: none; font: inherit; font-size: 1.15rem; font-style: italic; padding: .8rem .9rem; outline: none; }
+.banco-frase button { border: 0; background: var(--terracota); color: var(--papel); font-family: var(--mono); font-size: .7rem; letter-spacing: .14em; text-transform: uppercase; padding: 0 1.2rem; }
+.banco-frase button:hover { background: var(--tinta); }
+.banco-frase button:disabled { opacity: .55; }
+.veredicto { min-height: 19rem; }
+.veredicto .glosas { font-size: .78rem; line-height: 2; margin: .2rem 0 1rem; border-left: 2px solid var(--terracota); }
+.veredicto .glosa { grid-template-columns: minmax(0, 1fr) 6rem 2.6rem; }
+.veredicto .glosa .barra { height: 5px; }
+.decide { border-top: 1px solid var(--tinta); padding-top: .8rem; margin-top: .4rem; }
+.decide p { margin: 0 0 .5rem; font-size: 1.12rem; line-height: 1.34; }
+.decide p b { font-weight: 500; }
+.decide .quien-dec { font-family: var(--mono); font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; color: var(--apagado); display: block; margin-top: .9rem; }
+.decide .quien-dec.s1 { color: var(--terracota); }
+.banco .pie-banco { font-family: var(--mono); font-size: .64rem; color: var(--apagado); line-height: 1.7; margin-top: 1.2rem; border-top: 1px solid var(--filete); padding-top: .7rem; }
+
+.contraste { margin-top: clamp(3rem, 6vw, 5rem); }
+.contraste table { width: 100%; border-collapse: collapse; margin-top: 1.2rem; border-top: 3px solid var(--tinta); }
+.contraste th { text-align: left; font-family: var(--mono); font-weight: 600; font-size: .66rem; letter-spacing: .14em; text-transform: uppercase; padding: .7rem 1rem .7rem 0; border-bottom: 1px solid var(--tinta); }
+.contraste th:last-child { color: var(--terracota); }
+.contraste td { padding: .8rem 1.4rem .8rem 0; border-bottom: 1px solid var(--filete); vertical-align: top; font-size: 1.05rem; line-height: 1.36; width: 50%; }
+.contraste td:first-child { color: var(--apagado); }
+.contraste .confesion { margin-top: 1.6rem; font-size: 1.05rem; line-height: 1.45; max-width: 48rem; border-left: 2px solid var(--terracota); padding-left: 1rem; }
+
+@media (max-width: 900px) {
+  .triptico, .banco-cuerpo { grid-template-columns: 1fr; }
+  .panel { border-right: 0; border-bottom: 1.5px solid var(--tinta); }
+  .panel:last-child { border-bottom: 0; }
+  .pista-turno { grid-template-columns: 6.2rem minmax(0, 1fr); }
+  .pista-turno .carril span { display: none; }
+  .veredicto { min-height: 0; }
+  .contraste td { font-size: .98rem; padding-right: .8rem; }
+}
