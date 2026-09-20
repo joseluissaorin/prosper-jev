@@ -32,6 +32,7 @@ import httpx
 from pathlib import Path
 from google.genai import types
 
+import coste as COSTE
 import ficha
 import leer
 import say as S
@@ -48,7 +49,38 @@ PLANNER_MODEL = os.environ.get("PLANNER_MODEL", "gemini-3.5-flash-lite")
 OR_MODEL = os.environ.get("OR_MODEL", "openai/gpt-oss-120b")
 OR_PROVIDERS = [x for x in os.environ.get("OR_PROVIDERS", "Groq,Cerebras").split(",") if x]
 OR_URL = "https://openrouter.ai/api/v1/chat/completions"
-_OR: dict = {"down": False, "client": None}
+# `or_down` y `down` son CORTACIRCUITOS CON PLAZO, no cerrojos: guardan hasta cuándo (reloj monótono) no se intenta ese
+# servicio. Antes eran un booleano de proceso que nunca se reponía: un solo timeout en una llamada pasaba TODAS las
+# llamadas al camino lento hasta reiniciar. Ahora, pasado el plazo, la siguiente petición prueba de nuevo; si va bien
+# el circuito se cierra y si no se vuelve a abrir otro plazo. Cada apertura y cierre deja un evento en la traza.
+_OR: dict = {"down": 0.0, "or_down": 0.0, "client": None, "eventos": []}
+CIRCUITO_S = float(os.environ.get("CIRCUITO_S", "60"))                   # OpenRouter: un timeout suelto no dura más
+CIRCUITO_DENEGADO_S = float(os.environ.get("CIRCUITO_DENEGADO_S", "300"))  # Google deniega el proyecto: rara vez se arregla en un minuto
+_CIRCUITOS = {"or_down": "openrouter", "down": "gemini"}
+
+
+def _cortado(k: str) -> bool:
+    """¿Está abierto el circuito (no se intenta el servicio)? Pasado el plazo se deja pasar una petición de prueba."""
+    t = _OR.get(k) or 0.0
+    return bool(t) and time.monotonic() < t
+
+
+def _abrir(k: str, plazo: float, error: str = "") -> None:
+    _OR[k] = time.monotonic() + plazo
+    _OR["eventos"].append(("circuit_open", {"service": _CIRCUITOS.get(k, k), "retry_in_s": round(plazo), "error": error[:120]}))
+    del _OR["eventos"][:-20]
+
+
+def _cerrar(k: str) -> None:
+    if _OR.get(k):
+        _OR[k] = 0.0
+        _OR["eventos"].append(("circuit_closed", {"service": _CIRCUITOS.get(k, k)}))
+
+
+def circuit_events() -> list:
+    """Los cambios de circuito pendientes de anotar: los recoge (y los apunta en su traza) la primera llamada que pase."""
+    evs, _OR["eventos"] = list(_OR["eventos"]), []
+    return evs
 
 
 def _or_key() -> str:
@@ -112,7 +144,9 @@ async def or_chat(system: str, msgs: list, tools: list | None, timeout: float = 
     r = await _OR["client"].post(OR_URL, json=body, timeout=timeout)
     if r.status_code != 200:
         raise RuntimeError(f"openrouter {r.status_code}: {r.text[:200]}")
-    m = r.json()["choices"][0]["message"]
+    js = r.json()
+    COSTE.anotar_paso(OR_MODEL, *COSTE.uso_openrouter(js))
+    m = js["choices"][0]["message"]
     parts = []
     if m.get("content"):
         parts.append(types.Part(text=m["content"]))
@@ -132,24 +166,28 @@ BACKCHANNEL = os.environ.get("BACKCHANNEL", "0") == "1"    # openrouter (Groq: ~
 
 async def llm_step(system: str, msgs: list, tools: list | None, timeout: float = 5.0, schema: dict | None = None) -> types.Content:
     """Un paso del Sistema 2. Por defecto OpenRouter (gpt-oss-120b en Groq, medido en 0,34-0,59 s por paso frente a
-    0,6-1,1 s de Gemini); si falla, Gemini. Y si Google deniega el proyecto, ya no se vuelve a intentar con él."""
-    if BACKEND == "openrouter" and not _OR.get("or_down"):
+    0,6-1,1 s de Gemini); si falla, Gemini. Los dos fallos abren un cortacircuitos con plazo (CIRCUITO_S), no un cerrojo para siempre."""
+    if BACKEND == "openrouter" and not _cortado("or_down"):
         try:
-            return await or_chat(system, msgs, tools, timeout=timeout, schema=schema)
+            out = await or_chat(system, msgs, tools, timeout=timeout, schema=schema)
+            _cerrar("or_down")
+            return out
         except Exception as e:  # noqa: BLE001
-            _OR["or_down"] = True                     # OpenRouter no responde: se sigue con Gemini
-    if not _OR["down"]:
+            _abrir("or_down", CIRCUITO_S, repr(e))   # OpenRouter no responde: se sigue con Gemini y se reintenta al cabo del plazo
+    if not _cortado("down"):
         cfg = types.GenerateContentConfig(system_instruction=system, temperature=0.2, max_output_tokens=600,
                                           automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                                           **({"tools": [types.Tool(function_declarations=tools)]} if tools else {}),
                                           **({"response_mime_type": "application/json", "response_schema": schema} if schema else {}))
         try:
             r = await asyncio.wait_for(GEMINI.aio.models.generate_content(model=PLANNER_MODEL, contents=msgs, config=cfg), timeout=timeout)
+            COSTE.anotar_paso(PLANNER_MODEL, *COSTE.uso_gemini(r))
+            _cerrar("down")
             cand = r.candidates[0].content if r.candidates and r.candidates[0].content else None
             return cand if cand and cand.parts else types.Content(role="model", parts=[types.Part(text=r.text or "")])
         except Exception as e:  # noqa: BLE001
             if _denied(e):
-                _OR["down"] = True                     # Google no sirve a este proyecto: se pasa a OpenRouter y no se reintenta
+                _abrir("down", CIRCUITO_DENEGADO_S, repr(e))   # Google no sirve a este proyecto: OpenRouter, y se reprueba al cabo del plazo
             else:
                 raise
     return await or_chat(system, msgs, tools, timeout=max(timeout, 6.0), schema=schema)
@@ -436,6 +474,7 @@ class Conv:
         self.no_confirm = False
         self.audio = b""
         self._partials: list = []     # los parciales sobre los que ya se ha planificado en este turno
+        self.coste = COSTE.Coste()    # lo que gasta ESTA llamada (las sombras de la especulación comparten este mismo objeto)
 
     # ------------------------------------------------------------ utilidades comunes con Brain
 
@@ -540,6 +579,7 @@ class Conv:
     # ------------------------------------------------------------ inicio
 
     async def begin(self) -> list[dict]:
+        COSTE.usar(self.coste)
         await self.cat()
         self._line = []
         if self.s.from_number:
@@ -648,6 +688,7 @@ class Conv:
         }
 
     async def perceive(self, text: str, spec: bool = False) -> P:
+        COSTE.usar(self.coste)
         await self.cat()
         state = {"receptionist_last": self.s.last_agent, "recent_turns": self.s.history[-6:], "caller": text,
                  "note": "`caller` is an automatic transcription of a phone call; names may be misheard."}
@@ -724,6 +765,7 @@ class Conv:
     async def adopt(self, shadow) -> list[dict]:
         """Se queda con lo que calculó la sombra. Si escribió algo, en seco solo quedó anotado: se escribe ahora
         de verdad (antes, un turno que reservaba no podía reutilizar la especulación, justo el más importante)."""
+        COSTE.usar(self.coste)
         fx = list(shadow._effects)
         self.s = shadow.s
         self.s.submitted = [x for x in self.s.submitted if x.get("status") != "dry"]
@@ -744,12 +786,14 @@ class Conv:
         return bool(v and v[0]._effects)
 
     async def handle(self, text: str, p: P, dry: bool = False) -> list[dict]:
+        COSTE.usar(self.coste)
         key = self._key(self.s.version, text)
         if dry:
             # especulación: el planificador en seco sobre el parcial que Jev da por terminado, mientras se cierra el turno
             if key not in self._spec:
                 shadow = Conv(self.s.call_id, self.s.from_number, self.s.stream_sid)
                 shadow.s, shadow.catalog, shadow.facts, shadow._dry = copy.deepcopy(self.s), self.catalog, self.facts, True
+                shadow.coste = self.coste             # lo que gaste la sombra lo paga esta llamada, se adopte o no
                 shadow.on_prerender = self.on_prerender
                 shadow.hours = self.hours
                 shadow._line = getattr(self, "_line", [])
@@ -1295,6 +1339,8 @@ class Conv:
                 events.append(self._log("planner_retry", error=repr(e)[:120]))
                 cand = await llm_step(system, s.msgs, TOOLS, timeout=6)
             ms = round((time.perf_counter() - t0) * 1000)
+            for kind, kw in circuit_events():
+                events.append(self._log(kind, **kw))
             if cand is None or not cand.parts:
                 cand = types.Content(role="model", parts=[types.Part(text="")])
             calls = [pt.function_call for pt in cand.parts if pt.function_call]
@@ -2600,6 +2646,7 @@ CLINIC VOCABULARY
     async def finalize(self) -> list[dict]:
         """Al colgar: se manda lo que quedara a la espera y, si no se escribió nada, la negativa guardada (o la
         regla que bloqueó); nunca silencio."""
+        COSTE.usar(self.coste)
         s = self.s
         if self._dry:
             return []
@@ -2641,7 +2688,10 @@ CLINIC VOCABULARY
         return {"call_id": s.call_id, "language": s.lang, "patient_id": ",".join(s.patients) or None, "brain": "v2",
                 "outcome": ", ".join(x["action"] for x in s.submitted) or "none", "reason": s.decline or s.last_block,
                 "actions": [{**x["body"], "action": x["action"], "status": x.get("status")} for x in s.submitted],
-                "duration_s": round(time.time() - s.started, 1), "trace": s.trace, "api_calls": len(API.log)}
+                "duration_s": round(time.time() - s.started, 1), "trace": s.trace,
+                # antes era len(API.log): el contador de TODO el proceso, no el de esta llamada
+                "api_calls": self.coste.api_lecturas + self.coste.api_escrituras,
+                "cost": self.coste.resumen(time.time() - s.started)}
 
 
 # ================================================================ utilidades

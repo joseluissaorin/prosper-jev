@@ -50,6 +50,7 @@ sys.path.insert(0, str(HERE.parent / "demo"))
 from google.genai import types  # noqa: E402
 
 from brain import Brain  # noqa: E402
+from estadistica import Repeticiones  # noqa: E402
 if os.environ.get("AGENT") == "v2":
     from conv import Conv as Brain  # noqa: E402,F811
 from prosper_api import MADRID  # noqa: E402
@@ -357,6 +358,12 @@ def report(res: list[dict], path: Path, verbose: bool):
         if verbose:
             for w, t in r["hist"]:
                 print(f"     {'AGENTE' if w == 'agent' else 'LLAMA '} {t[:260]}")
+    # varianza entre repeticiones: k/N por caso, Wilson, inestables aparte de los que fallan siempre, latencia por turno
+    reps = Repeticiones()
+    for r in res:
+        reps.caso(f"{r['problem']} · {r['id']}", r.get("rep", 0), r["ok"])
+        reps.latencias(r.get("rep", 0), [t.get("ms") for t in r.get("turns", [])])
+    print("\n".join(reps.informe("RÉPLICA · VARIANZA ENTRE REPETICIONES (latencia: cerebro por turno, sin voz)")))
 
 
 def dump(res, path):
