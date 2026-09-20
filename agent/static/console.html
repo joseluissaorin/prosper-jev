@@ -122,7 +122,7 @@ function result(r) {
   return short(bits.length ? bits.join(" · ") : JSON.stringify(o), 190);
 }
 const failed = (r) => /"error"|not[ _]found|blocked|denied|refus|missing|required|not allowed|need_/i.test(typeof r === "string" ? r : JSON.stringify(r || ""));
-const isGuard = (k) => /_(invented|ignored|corrected)$/.test(k || "") || ["truth_guard", "guard", "decline_coerced", "decline_oos", "decline_kept", "must_check_first", "name_placeholder", "name_is_doctor"].includes(k);
+const isGuard = (k) => /_(invented|ignored|corrected)$/.test(k || "") || ["truth_guard", "guard", "decline_coerced", "decline_oos", "decline_kept", "must_check_first", "name_placeholder", "name_is_doctor", "research_blocked", "dni_no_pedido"].includes(k);
 const isLane = (k) => ["planner", "composed", "fast_path"].includes(k);
 const LANE = { planner: "planificador (modelo)", composed: "plantilla del código", fast_path: "carril rápido (sin modelo)" };
 
@@ -157,6 +157,11 @@ function describe(v) {
     case "usual_doctor_option": return { cls: "", head: "su médico de siempre", text: compact(rest(v), 200) };
     case "trato": return { cls: "", head: "tratamiento", text: compact(rest(v), 160) };
     case "undo": return { cls: "warn", head: "deshacer", text: `seguía hablando: se deshace la respuesta y se une el turno · ${q(v.text, 120)}` };
+    case "trato": return { cls: "tool", head: "la ficha pide un trato", text: `${v.patient}: ${(v.pautas || []).join(", ")}` };
+    case "usual_doctor_option": return { cls: "tool", head: "su médico de siempre", text: `además de lo primero se ofrece ${v.provider} (${v.slot}): elige quien llama` };
+    case "upcoming_mentioned": return { cls: "tool", head: "ya tiene una cita", text: `se nombra ${v.appointment} antes de dar otra` };
+    case "ask_what_to_change": return { cls: "warn", head: "«no» a secas", text: "no dice qué no encaja: se pregunta (día, hora o médico) en vez de ofrecer a ciegas" };
+    case "cut_short": return { cls: "warn", head: "frase cortada", text: `quien llama solo oyó (${Math.round((v.frac || 0) * 100)} %): ${q(v.heard, 120)}` };
     case "barge_in": return { cls: "warn", head: "interrupción", text: `${v.act || ""} ${v.conf != null ? v.conf : ""} · ${q(v.text, 120)}` };
     case "early_answer": return { cls: "", head: "respuesta temprana", text: `${q(v.text, 100)} · terminada ${v.finished}` };
     case "site_heard": return { cls: "", head: "sede oída", text: `${v.site} (${v.conf})` };
@@ -191,6 +196,9 @@ function describe(v) {
     case "decline_oos": return G(`quiso declinar por «${v.said}», pero Jev había oído algo fuera de límites: ${v.oos}`);
     case "decline_kept": return G(`quiso cambiar el motivo a «${v.said}»; se mantiene el ya declarado: ${v.kept}`);
     case "must_check_first": return G(`quiso declinar sin mirar antes la ficha de ${v.patient || "quien llama"}: se le obliga a comprobar`);
+    case "research_blocked": return G(`quiso buscar otro hueco sin que nadie rechazara el que acababa de leer (acto: ${v.act}): se le obliga a contestar lo que dijo quien llama`);
+    case "dni_no_pedido": return G(`iba a pedir el DNI a alguien cuya línea ya está en una ficha: se pregunta con quién se habla · ${q(v.was, 100)}`);
+    case "name_invented": return G(`buscó a ${q(v.said, 60)}, un nombre que nadie había dicho: se pregunta el nombre`);
     case "name_placeholder": return G(`usó un nombre de relleno (${q(v.said, 40)}): no se toma como nombre`);
     case "name_is_doctor": return G(`${q(v.said, 60)} es un médico de la clínica (${v.provider}), no el paciente`);
     case "site_corrected": case "specialty_corrected": return G(`${k.startsWith("site") ? "sede" : "especialidad"} corregida: ${v.was || "ninguna"} → ${v.now} (manda lo que se oyó)`);
