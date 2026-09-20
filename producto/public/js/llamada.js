@@ -326,7 +326,9 @@
     pie("grabada"); estado("Buscando una llamada real…"); ahora("");
     try {
       if (!indice) indice = await (await fetch("/datos/actas/indice.json")).json();
-      const pool = (indice.destacadas && indice.destacadas.length ? indice.destacadas : indice.actas.slice(0, 30).map((x) => x.id));
+      let pool = (indice.destacadas && indice.destacadas.length ? indice.destacadas : indice.actas.slice(0, 30).map((x) => x.id));
+      const idi = Object.fromEntries((indice.actas || []).map((x) => [x.id, x.idioma]));      // primero las que están en castellano o en catalán
+      pool = [...pool].sort((a, b) => ({ es: 0, ca: 1 }[idi[a]] ?? 2) - ({ es: 0, ca: 1 }[idi[b]] ?? 2));
       let id = pool.find((x) => !vistas.includes(x)) || pool[Math.floor(Math.random() * pool.length)];
       vistas.push(id); if (vistas.length >= pool.length) vistas = [];
       const acta = await (await fetch(`/datos/actas/${id}.json`)).json();
@@ -386,6 +388,8 @@
   document.querySelectorAll("[data-ver-grabada]").forEach((b) => b.addEventListener("click", verGrabada));
   document.querySelectorAll("[data-volver]").forEach((b) => b.addEventListener("click", volver));
   document.querySelectorAll("[data-llamar]").forEach((b) => b.addEventListener("click", () => { scrollTo({ top: 0, behavior: "smooth" }); setTimeout(elegir, 350); }));
+
+  if (/[?&]grabada/.test(location.search)) setTimeout(verGrabada, 300);   // enlace directo a «ver una llamada real»
 
   (function medir() {
     const m = $("nivel");

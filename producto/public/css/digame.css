@@ -110,6 +110,7 @@ body.eligiendo .quien { display: block; }
 body.en-llamada .pliego-vivo, body.en-acta .pliego-vivo { display: grid; }
 body.en-llamada .gigante, body.en-acta .gigante, body.eligiendo .gigante { font-size: clamp(2.6rem, 7vw, 6rem); transform: rotate(-5deg) translate(0, 0); opacity: .16; position: absolute; top: 4.2rem; right: 2vw; }
 body.en-llamada .portada-pie, body.en-acta .portada-pie, body.eligiendo .portada-pie { display: none; }
+body.en-llamada .gigante, body.en-acta .gigante { opacity: 0; }
 body.en-llamada .cuna, body.en-acta .cuna { display: none; }
 
 .quien { align-self: center; justify-self: center; width: min(44rem, 92vw); background: color-mix(in srgb, var(--papel) 94%, transparent); border: 1px solid var(--tinta); padding: clamp(1.2rem, 3vw, 2.2rem); box-shadow: 10px 10px 0 var(--tinta); }
@@ -317,8 +318,8 @@ body.en-llamada .cuna, body.en-acta .cuna { display: none; }
 .fallos .estado { font-family: var(--mono); font-size: .64rem; letter-spacing: .08em; color: var(--terracota); max-width: 14rem; text-align: right; line-height: 1.5; }
 
 /* la nota */
-.nota-grande { display: grid; grid-template-columns: auto 1fr; gap: clamp(2rem, 6vw, 6rem); align-items: end; margin-top: 2rem; }
-.nota-num { font-size: clamp(9rem, 27vw, 25rem); font-style: italic; font-weight: 500; letter-spacing: -.07em; line-height: .74; color: var(--terracota); font-variant-numeric: lining-nums; margin-left: -.04em; }
+.nota-grande { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: clamp(2rem, 5vw, 5rem); align-items: start; margin-top: 2.4rem; }
+.nota-num { font-size: clamp(8rem, 20vw, 19rem); padding-top: .12em; font-style: italic; font-weight: 500; letter-spacing: -.07em; line-height: .74; color: var(--terracota); font-variant-numeric: lining-nums; margin-left: -.04em; }
 .nota-num small { font-size: .16em; font-family: var(--mono); font-style: normal; letter-spacing: .1em; color: var(--tinta); display: block; margin: 1.2rem 0 0 .3em; line-height: 1.6; text-transform: uppercase; }
 .barras { display: grid; gap: .55rem; }
 .barra-fila { display: grid; grid-template-columns: minmax(8rem, 15rem) 1fr 4.4rem; gap: .8rem; align-items: center; font-size: .98rem; }

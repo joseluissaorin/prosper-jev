@@ -1017,8 +1017,11 @@ class Conv:
             # «¿dónde está Arenal Sur?» es una pregunta, no pedir la cita allí. Sin esto la sede quedaba fijada, todas las
             # búsquedas se hacían solo en ella y la llamada acababa en «no hay huecos» (arnés, preguntas-009: era el otro
             # «fallo de siempre»; en Sur no hay ginecología)
+            s.asked["_sede_preguntada"] = 1
             out.append(self._log("site_only_asked", site=st))
-        elif st and st != s.site:
+        elif st and st != s.site and (not s.asked.get("_sede_preguntada") or re.search(
+                r"\b(arenal|sur|norte|centro|south|north|centre|center|nord|sud)\b", fold(text))):
+            # tras una sede solo preguntada, Jev sigue viéndola en los turnos recientes: solo cuenta si se nombra en ESTE turno
             s.site = st
             out.append(self._log("site_heard", site=st, conf=round(stc, 2)))
         if re.search(r"\b(appointment|appointments|book|booking|slot|see (a|the) (doctor|gp|specialist)|cita|citas|hora|visita|reservar|pedir hora|"
@@ -1385,6 +1388,7 @@ class Conv:
         system = self.system_prompt()
         events, ended = [], False
         tools = TOOLS
+        self._id_loops = 0
         for step in range(7):
             t0 = time.perf_counter()
             try:
@@ -1449,6 +1453,15 @@ class Conv:
                 events.append(self._log("composed", step=step, ms=ms, tools=[fc.name for fc in calls], said=said_here[:200]))
                 s.msgs.append(types.Content(role="model", parts=[types.Part(text=said_here)]))
                 return said_here, ended, events
+            for fc, r_ in zip(calls, raw):
+                if fc.name == "identify_patient" and isinstance(r_, dict) and r_.get("status") in ASK:
+                    self._id_loops = getattr(self, "_id_loops", 0) + 1
+                    if self._id_loops >= 2:
+                        self._id_loops = 0
+                        said_here = self._sp(r_["status"])
+                        events.append(self._log("loop_broken", tool=fc.name, status=r_["status"]))
+                        s.msgs.append(types.Content(role="model", parts=[types.Part(text=said_here)]))
+                        return said_here, ended, events
             errs = [(fc.name, json.dumps(pt.function_response.response, sort_keys=True, default=str)) for fc, pt in zip(calls, results)
                     if "error" in json.dumps(pt.function_response.response, default=str)]
             seen_errs = getattr(self, "_errs", {})
@@ -1500,6 +1513,11 @@ class Conv:
             said = pre + (said[:1].lower() + said[1:] if pre.endswith(": ") else said)
         # repetir palabra por palabra lo ya dicho en esta llamada no es contestar: que el planificador lo diga de otro modo
         if said and any(fold(said) == fold(h[14:]) for h in s.history if h.startswith("Receptionist: ")):
+            if name == "identify_patient":
+                # pedir un dato por segunda vez lo reformula `no_repetir` más abajo. Devolver None aquí dejaba al planificador
+                # solo, y se ponía a inventar DNI y teléfonos en bucle (siete pasos, ninguna frase) hasta que el agente decía
+                # «Sorry, could you say that again?» turno tras turno: arnés del 20-09, fechas-005, doce veces seguidas.
+                return said
             return None
         return said
 
