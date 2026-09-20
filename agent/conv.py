@@ -319,6 +319,7 @@ class St2:
     version: int = 0
     patients: dict = field(default_factory=dict)      # fichas verificadas en esta llamada
     appts: dict = field(default_factory=dict)         # citas próximas por paciente verificado
+    cut: str = ""                                     # lo que llegó a sonar de la última frase si quien llama la cortó
     trato: list = field(default_factory=list)         # pautas de trato que pide la nota de la ficha (códigos de ficha.py)
     offers: dict = field(default_factory=dict)        # huecos ofrecidos (id → datos)
     rejected: list = field(default_factory=list)      # (profesional, hora) ofrecidos y no aceptados
@@ -466,6 +467,32 @@ class Conv:
 
     def spec_name(self, sid: str) -> str:
         return next((x["name"] for x in (self.catalog or {}).get("specialties", []) if x["id"] == sid), sid or "")
+
+    def cut_short(self, frac: float):
+        """Quien llama ha cortado al agente cuando llevaba dicha la fracción `frac` de la frase. Lo que no sonó no se ha
+        dicho: la conversación (Jev, el planificador y la puerta del «sí») se queda con lo que oyó. Sin esto, una oferta
+        cortada a la tercera palabra contaba como leída y un «sí» posterior podía reservarla."""
+        s = self.s
+        if not s.history or not s.history[-1].startswith("Receptionist: ") or frac >= 0.9:
+            return
+        words = s.history[-1][14:].split()
+        k = max(1, int(len(words) * max(0.0, frac)))
+        if k >= len(words):
+            return
+        heard = " ".join(words[:k])
+        s.history[-1] = f"Receptionist: {heard}…"
+        s.last_agent = heard + "…"
+        s.cut = heard
+        pres = s.presented or {}
+        if pres.get("turn") == s.turn:
+            for ref in pres.get("refs") or [pres.get("ref")]:
+                o = s.offers.get(ref)
+                dt = parse_slot(o["slot"]["start_time"]) if o else None
+                if o and not ({dt.strftime("%-I"), dt.strftime("%-H")} & set(re.findall(r"\d{1,2}", heard.split(" of ")[-1].split(" de ")[-1]))):
+                    o["turn"] = None                      # la hora no llegó a sonar: esa oferta no está leída
+            if all((s.offers.get(r) or {}).get("turn") is None for r in (pres.get("refs") or [pres.get("ref")]) if r in s.offers):
+                s.presented = {}
+        self._log("cut_short", heard=heard[-100:], frac=round(frac, 2))
 
     def hold_phrase(self, p: P | None = None) -> str:
         """El acuse que suena al instante cuando el turno va a tardar: lo que hace una persona mientras mira. Pero
@@ -904,6 +931,10 @@ class Conv:
         out += pre[1]
         # 3. el planificador, con los juicios de Jev, la lectura determinista y lo ya identificado como señales
         sig = self.signals(text, p) + (f"\n[Kernel lookup, already verified] {' · '.join(pre[0])}" if pre[0] else "")
+        if s.cut:
+            sig += (f"\n[Kernel] The caller interrupted your last sentence: they only heard «{s.cut}…». Do not assume they heard the rest; "
+                    "answer what they say now, and repeat the rest only if it is still relevant.")
+            s.cut = ""
         if not s.patients and len(getattr(self, "_line", None) or []) == 1 and not s.for_other and (
                 s.wants_appt or (p.c("intent")[0] not in (None, "unclear", "none") and p.c("intent")[1] >= 0.6)):
             # la línea apunta a UNA ficha: basta el nombre para reconocer a quien llama. Pedirle además el DNI es

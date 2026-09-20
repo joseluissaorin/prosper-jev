@@ -137,6 +137,8 @@ def _fold(s: str) -> str:
 
 
 # lo que puede cambiar entre dos parciales, o entre un parcial y su definitivo, sin cambiar lo que hay que hacer
+ALTO = re.compile(r"^\W*(no+|no no|espere?|espera|un momento|perdon[ae]?|perdon|oiga|wait|stop|sorry|hold on|hang on|one moment|excuse me|"
+                  r"esperi|un moment|perdoni)\b\W*$")
 FILLER = {"please", "thanks", "thank", "you", "um", "uh", "er", "erm", "hmm", "mm", "mhm", "ah", "oh", "well", "so", "right",
           "por", "favor", "gracias", "muchas", "eh", "pues", "bueno", "vale", "ok", "okay", "si", "us", "plau", "gracies",
           "moltes", "sisplau", "perdone", "perdona", "perdoni", "disculpe"}
@@ -715,12 +717,22 @@ class VoiceCall:
         if not (self.turn_open if self.noisy else self.vad.speaking) or getattr(self, "act_start_t", 0) < getattr(self, "agent_start_t", 0) + 0.15:
             return
         act, c = p.act
-        if p.n("emergency") >= 0.5 or (act not in ("backchannel", "unclear", None) and c >= 0.6 and len(full.split()) >= 2):
+        # una sola palabra también corta si es de las que cortan: «¡no!», «espere», «wait». Un «sí» o un «vale» sueltos, no.
+        alto = bool(ALTO.search(_fold(full)))
+        if p.n("emergency") >= 0.5 or alto or (act not in ("backchannel", "unclear", None) and c >= 0.6 and len(full.split()) >= 2):
+            t_said = time.time() - getattr(self, "agent_start_t", time.time())
             self.speak_task.cancel()
             self.speaking_until = 0
-            await self.emit("stop_audio", reason=f"interrupción ({act} {c:.2f})")
+            await self.emit("stop_audio", reason=f"interrupción ({act} {c:.2f})" + (" · palabra de alto" if alto else ""))
             if self.call:
-                self.call._log("barge_in", act=act, conf=c, text=full)
+                self.call._log("barge_in", act=act, conf=c, text=full, alto=alto)
+                try:
+                    # lo que no ha llegado a sonar no se ha dicho: la conversación se queda con lo que oyó quien llama
+                    cut = getattr(self.call, "cut_short", None)
+                    if cut:
+                        cut(max(0.0, t_said - 0.3) * 14 / max(1, len(self.agent_text or "")))
+                except Exception as e:  # noqa: BLE001
+                    log.warning("cut_short: %r", e)
 
     async def maybe_undo(self):
         """Vuelve a hablar justo después de que respondiéramos: era una pausa. Se corta la voz, se restaura
