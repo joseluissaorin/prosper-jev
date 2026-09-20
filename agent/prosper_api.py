@@ -14,6 +14,12 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
+try:
+    from coste import anotar_api
+except Exception:  # noqa: BLE001
+    def anotar_api(metodo: str) -> None:
+        return None
+
 MADRID = ZoneInfo("Europe/Madrid")
 BASE = os.environ.get("PROSPER_API_BASE_URL", "https://hackspain.getprosperapp.com").rstrip("/")
 
@@ -80,6 +86,7 @@ class Prosper:
                 await asyncio.sleep(0.2 * (attempt + 1))
         ms = round((time.perf_counter() - t0) * 1000)
         self.log.append({"t": time.time(), "method": "GET", "path": path, "params": params, "status": r.status_code, "ms": ms})
+        anotar_api("GET")          # el recuento de ESTA llamada (self.log es de todo el proceso)
         if r.status_code != 200:
             raise ApiError(r.status_code, r.text)
         return r.json()
@@ -148,6 +155,7 @@ class Prosper:
                 continue
             ms = round((time.perf_counter() - t0) * 1000)
             self.log.append({"t": time.time(), "method": "POST", "path": f"/submit/{action}", "body": body, "status": r.status_code, "ms": ms})
+            anotar_api("POST")          # el recuento de ESTA llamada (self.log es de todo el proceso)
             if r.status_code in (200, 409):
                 return {"status": r.status_code, **(r.json() if r.headers.get("content-type", "").startswith("application/json") else {})}
             if r.status_code >= 500 and attempt < 3:

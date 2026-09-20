@@ -26,6 +26,12 @@ from google.genai import types
 import clinic
 from system2 import _key
 
+try:                                   # el medidor por llamada vive en agent/coste.py; sin él (la demo sola) no se mide
+    from coste import anotar_tts
+except Exception:  # noqa: BLE001
+    def anotar_tts(chars, fuente: str) -> None:
+        return None
+
 log = logging.getLogger("voz")
 CLIENT = genai.Client(api_key=_key())
 STT_MODEL = os.environ.get("STT_MODEL", "gemini-3.5-transcribe-live")
@@ -648,6 +654,7 @@ class Mouth:
     async def _render(self, k: str, r: Render):
         """Sesión del pool → si falla ANTES de sonar, sesión nueva → si también, TTS no en directo. Una sesión
         del pool puede llevar minutos abierta y el servidor la aborta (1008): nunca debe quedar la línea muda."""
+        anotar_tts(len(r.text), "gemini")
         async with self.sem:
             for attempt in ("pool", "nueva", "tts"):
                 try:
@@ -940,6 +947,7 @@ class ElevenMouth:
             body["language_code"] = lang
         async with self.sem:
             self.last_use = time.time()
+            anotar_tts(len(text), "elevenlabs")     # ElevenLabs cobra los caracteres pedidos, gane o no la carrera con Gemini
             async with self._client().stream("POST", f"/v1/text-to-speech/{voice}/stream", params=params, json=body) as resp:
                 if resp.status_code != 200:
                     raise RuntimeError(f"HTTP {resp.status_code}: {(await resp.aread())[:200]!r}")

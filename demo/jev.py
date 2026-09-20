@@ -25,6 +25,14 @@ def _key() -> str:
     raise RuntimeError("Falta TYPESAFE_API_KEY")
 
 
+try:                                   # el medidor por llamada vive en agent/coste.py; sin él (la demo sola) no se mide
+    from coste import anotar_jev
+except Exception:  # noqa: BLE001
+    def anotar_jev(tokens) -> None:
+        return None
+
+
+
 class JevError(Exception):
     pass
 
@@ -91,6 +99,10 @@ class Jev:
         ms = (time.perf_counter() - t0) * 1000
         self.calls += 1
         self.tokens += result.get("usage", {}).get("input_tokens", 0)
+        try:                           # además del contador del proceso, el de la llamada en curso (contextvars)
+            anotar_jev((result.get("usage") or {}).get("input_tokens"))
+        except Exception:  # noqa: BLE001
+            pass
         return {"answers": result["answers"], "ms": round(ms), "hedged": hedged, "model": result.get("model")}
 
     async def close(self) -> None:

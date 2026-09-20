@@ -35,6 +35,7 @@ _spec.loader.exec_module(demo)
 import ulaw  # noqa: E402
 from brain import API, Brain  # noqa: E402
 from conv import Conv  # noqa: E402
+import coste as COSTE  # noqa: E402
 
 AGENT = os.environ.get("AGENT", "v1")      # v1: máquina de estados (brain.py) · v2: planificador con herramientas (conv.py)
 from jev import JEV  # noqa: E402
@@ -266,6 +267,8 @@ class TwilioCall(demo.VoiceCall):
         self.call_sid = st.get("callSid") or (st.get("customParameters") or {}).get("call_id", "")
         frm = (st.get("customParameters") or {}).get("from_number")
         self.call = (Conv if AGENT == "v2" else Brain)(call_id=self.call_sid, from_number=frm, stream_sid=self.stream_sid)
+        # el medidor de esta llamada queda fijado en esta tarea ANTES de crear el oído y las tareas de voz: todas lo heredan
+        COSTE.usar(getattr(self.call, "coste", None))
         if hasattr(self.call, "on_early"):
             self.call.on_early = self.early_ack
         if hasattr(self.call, "on_prerender"):
@@ -287,6 +290,9 @@ class TwilioCall(demo.VoiceCall):
                 if o["kind"] == "event":
                     await self.emit("trace", event=o["event"])
             await ears
+            if getattr(self.call, "coste", None) is not None:
+                # audio del oído ≈ duración de la llamada × sesiones de transcripción abiertas (todas oyen lo mismo)
+                self.call.coste.stt_sesiones = len(getattr(self.ears, "sessions", None) or [1])
         except Exception as e:  # noqa: BLE001
             await self.emit("log", msg=f"arranque: {e}")
         await self.emit("state", state=self.call.snapshot())
@@ -300,6 +306,8 @@ class TwilioCall(demo.VoiceCall):
         self.agent_start_t = time.time()
         r = self.render(text)
         ready = r.cached or r.done or bool(r.chunks)     # ya en caché o preparada de antemano (especulación)
+        if getattr(self.call, "coste", None) is not None:
+            self.call.coste.hablado(len(text), bool(r.cached))
         await self.emit("agent", text=text, act=act, source=source, cached=r.cached or r.done, audio=True)
         first, buf, t_start, sent_s, wall0 = True, b"", None, 0.0, time.time()
         t_ask = time.perf_counter()
