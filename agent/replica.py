@@ -209,9 +209,10 @@ def matches(sub: list[dict], accepted: list[dict]) -> tuple[bool, str]:
 def describe(miss: list[tuple], extra: list[tuple]) -> str:
     """Qué campo falla (lo que el marcador de Prosper no dice en los casos privados)."""
     if len(miss) == 1 and len(extra) == 1 and miss[0][0] == extra[0][0]:
-        w, g = dict(miss[0][1:]), dict(extra[0][1:])
-        if miss[0][0] == "REGISTER":
-            w, g = dict(w), dict(g)
+        if miss[0][0] == "REGISTER":                      # ("REGISTER", (campos…)): los campos van en UNA tupla, no sueltos
+            w, g = dict(miss[0][1]), dict(extra[0][1])
+        else:
+            w, g = dict(miss[0][1:]), dict(extra[0][1:])
         diffs = [f"{k}: esperado {w.get(k)!r} · enviado {g.get(k)!r}" for k in sorted(set(w) | set(g)) if w.get(k) != g.get(k)]
         return f"{miss[0][0]} con campos distintos → " + "; ".join(diffs)
     return f"faltan {[m[0] for m in miss]} · sobran {[e[0] for e in extra]} · esperado {miss[:2]} · enviado {extra[:2]}"
