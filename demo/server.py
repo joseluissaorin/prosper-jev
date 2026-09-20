@@ -609,7 +609,10 @@ class VoiceCall:
         if self.turn_open or self.caller_talking() or self.ready_get(full) is not None:
             return
         say = getattr(self.call, "hold_phrase", None)
-        text = say() if say else nlg.say("ack", getattr(self.call.s, "lang", None) or "en")
+        try:
+            text = say(p) if say else nlg.say("ack", getattr(self.call.s, "lang", None) or "en")
+        except TypeError:                                 # el cerebro v1 no mira qué ha dicho quien llama
+            text = say()
         if not text or _fold(text) == _fold(self.agent_text or ""):
             return
         self.call._log("hold_ack", text=text, waited_ms=round((time.perf_counter() - t_close) * 1000))

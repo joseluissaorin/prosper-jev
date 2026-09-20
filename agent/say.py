@@ -24,6 +24,51 @@ def when(lang: str, dt: datetime) -> str:
     return f"{WD['en'][dt.weekday()]} the {_ord(dt.day)} of {MO['en'][dt.month - 1]} at {ampm}"
 
 
+_H_ES = ["doce", "una", "dos", "tres", "cuatro", "cinco", "seis", "siete", "ocho", "nueve", "diez", "once"]
+_H_CA = ["dotze", "una", "dues", "tres", "quatre", "cinc", "sis", "set", "vuit", "nou", "deu", "onze"]
+_M_ES = {5: "y cinco", 10: "y diez", 15: "y cuarto", 20: "y veinte", 25: "y veinticinco", 30: "y media", 35: "y treinta y cinco",
+         40: "y cuarenta", 50: "y cincuenta", 55: "y cincuenta y cinco"}
+_M_CA = {5: "i cinc", 10: "i deu", 15: "i quart", 20: "i vint", 25: "i vint-i-cinc", 30: "i mitja", 35: "i trenta-cinc",
+         40: "i quaranta", 50: "i cinquanta", 55: "i cinquanta-cinc"}
+
+
+def hora_hablada(lang: str, h: int, m: int) -> str | None:
+    """«16:30» como lo dice una persona: «las cuatro y media de la tarde». None si no hay forma natural (se deja en cifras)."""
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        return None
+    es = lang == "es"
+    hh = h
+    if m == 45:                                           # «las cinco menos cuarto»
+        hh, mins = h + 1, ("menos cuarto" if es else "menys quart")
+    elif m == 0:
+        mins = ""
+    else:
+        mins = (_M_ES if es else _M_CA).get(m)
+        if mins is None:
+            return None
+    word = (_H_ES if es else _H_CA)[hh % 12]
+    art = ("la" if es else "la") if hh % 12 == 1 else ("las" if es else "les")
+    if es:
+        part = "de la mañana" if h < 12 else "del mediodía" if h == 12 and m < 45 else "de la tarde" if h < 21 else "de la noche"
+    else:
+        part = "del matí" if h < 12 else "del migdia" if h == 12 and m < 45 else "de la tarda" if h < 21 else "de la nit"
+    return " ".join(x for x in (art, word, mins, part) if x)
+
+
+def hablado(text: str, lang: str | None) -> str:
+    """Lo que se le pasa a la VOZ, que no es lo que se escribe: en castellano y catalán las horas van en palabras
+    («a las 16:30» suena a megafonía de estación; una recepcionista dice «a las cuatro y media de la tarde»). El texto
+    de la llamada (traza, puerta de confirmación, salvaguardas) sigue llevando las cifras: solo cambia lo que suena."""
+    if lang not in ("es", "ca"):
+        return text
+    import re
+
+    def sub(m):
+        w = hora_hablada(lang, int(m.group(2)), int(m.group(3) or 0))
+        return f"{m.group(1)} {w}" if w else m.group(0)
+    return re.sub(r"\b([Aa]) l[ae]s? (\d{1,2})(?:[:.](\d{2}))?\b(?!\s*(?:de la|del|h\b))", sub, text)
+
+
 def day_name(lang: str, dt) -> str:
     if lang == "es":
         return f"El {WD['es'][dt.weekday()]} {dt.day}"

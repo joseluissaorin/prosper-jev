@@ -629,8 +629,8 @@ class Mouth:
         except Exception:  # noqa: BLE001
             pass
 
-    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24") -> Render:
-        """Gemini siempre da PCM de 24 kHz: `lang` y `fmt` se aceptan por compatibilidad (quien escucha mira r.fmt)."""
+    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24", slow: bool = False) -> Render:
+        """Gemini siempre da PCM de 24 kHz: `lang`, `fmt` y `slow` se aceptan por compatibilidad (quien escucha mira r.fmt)."""
         k = self.key(text)
         r = self.renders.get(k)
         if r and (r.ok or not r.done):
@@ -764,6 +764,8 @@ ELEVEN_API = "https://api.elevenlabs.io"
 # deletreadas, y el único con catalán y gallego. Sin euskera: el euskera lo lee Gemini.
 ELEVEN_MODEL = os.environ.get("ELEVEN_MODEL", "eleven_v3_conversational")
 ELEVEN_MODEL_V3 = "eleven_v3_conversational"
+ELEVEN_MODEL_SLOW = os.environ.get("ELEVEN_MODEL_SLOW", "eleven_flash_v2_5")
+ELEVEN_SLOW_SPEED = float(os.environ.get("ELEVEN_SLOW_SPEED", "0.85"))
 # Ninguna voz suena nativa a la vez en inglés y en castellano: Alice (británica, de serie) para el inglés y
 # Llanos Aguilar (peninsular, de la biblioteca, añadida a la cuenta) para castellano, catalán y gallego.
 ELEVEN_VOICES = {
@@ -837,15 +839,17 @@ class ElevenMouth:
             if time.time() - self.last_use > 15:
                 await self._ping(self.max_parallel)
 
-    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24", live: bool = True) -> Render:
-        """live=False (precarga): sin carrera con Gemini y con reintentos; lo que importa es que quede en disco."""
+    def render(self, text: str, lang: str | None = None, fmt: str = "pcm24", live: bool = True, slow: bool = False) -> Render:
+        """live=False (precarga): sin carrera con Gemini y con reintentos; lo que importa es que quede en disco.
+        slow=True: voz pausada para quien oye mal o llama con ruido (lo pide la nota de su ficha)."""
         if not self.enabled or lang not in (None, "en", "es", "ca", "gl") or fmt not in ELEVEN_FORMATS:
             return self.fallback.render(text)
-        k = self.key(text, lang, fmt)
+        k = self.key(text, lang, fmt) + ("-lento" if slow else "")
         r = self.renders.get(k)
         if r and (r.ok or not r.done):
             return r
         r = Render(text, fmt)
+        r.slow = slow
         self.renders[k] = r
         f = CACHE / f"{k}.{'ulaw' if fmt == 'ulaw8' else 'pcm'}"
         if f.exists():
@@ -872,7 +876,7 @@ class ElevenMouth:
         if not live:
             for attempt in range(3):
                 try:
-                    await self._eleven(r.text, lang, fmt, sink("elevenlabs", fmt))
+                    await self._eleven(r.text, lang, fmt, sink("elevenlabs", fmt), slow=getattr(r, "slow", False))
                     break
                 except Exception as e:  # noqa: BLE001
                     log.warning("boca ElevenLabs (precarga, intento %d): %s", attempt + 1, e)
@@ -886,7 +890,7 @@ class ElevenMouth:
             self._save(k, r, lang, fmt, f)
             await r.finish(ok=True)
             return
-        tasks = {"elevenlabs": asyncio.create_task(self._eleven(r.text, lang, fmt, sink("elevenlabs", fmt)))}
+        tasks = {"elevenlabs": asyncio.create_task(self._eleven(r.text, lang, fmt, sink("elevenlabs", fmt), slow=getattr(r, "slow", False)))}
         fw = asyncio.create_task(first.wait())
         try:
             await asyncio.wait([tasks["elevenlabs"], fw], timeout=ELEVEN_TTFB_S, return_when=asyncio.FIRST_COMPLETED)
@@ -930,14 +934,20 @@ class ElevenMouth:
         else:
             log.warning("boca ElevenLabs: duración rara (%.1f s para %.1f s esperados), no se guarda: %r", r.duration, expected, r.text)
 
-    async def _eleven(self, text: str, lang: str | None, fmt: str, add) -> bool:
+    async def _eleven(self, text: str, lang: str | None, fmt: str, add, slow: bool = False) -> bool:
         voice, model = self.voice_model(lang)
+        if slow:
+            # medido el 20-09-2026: eleven_v3_conversational ignora `speed` (misma duración a 0,75 que a 1,0);
+            # flash_v2_5 la respeta (+30 % de duración a 0,75). Para hablar despacio, la misma voz con ese modelo.
+            model = ELEVEN_MODEL_SLOW
         params = {"output_format": ELEVEN_FORMATS[fmt][0]}
         if "v3" not in model:
             params["optimize_streaming_latency"] = "3"
         body = {"text": text, "model_id": model}
         if lang:
             body["language_code"] = lang
+        if slow:
+            body["voice_settings"] = {"speed": ELEVEN_SLOW_SPEED}
         async with self.sem:
             self.last_use = time.time()
             async with self._client().stream("POST", f"/v1/text-to-speech/{voice}/stream", params=params, json=body) as resp:

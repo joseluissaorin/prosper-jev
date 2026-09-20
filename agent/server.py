@@ -32,6 +32,8 @@ import importlib.util  # noqa: E402
 _spec = importlib.util.spec_from_file_location("demo_server", HERE.parent / "demo" / "server.py")
 demo = importlib.util.module_from_spec(_spec)   # la tubería de voz de la demo: oído, turnos, deshacer, boca
 _spec.loader.exec_module(demo)
+import ficha  # noqa: E402
+import say as S  # noqa: E402
 import ulaw  # noqa: E402
 from brain import API, Brain  # noqa: E402
 from conv import Conv  # noqa: E402
@@ -81,6 +83,8 @@ def english_phrases() -> list[tuple[str, str]]:
         import conv as C
         out += [(v, lang) for lang, kinds in C.ARRANQUE.items() for vs in kinds.values() for v in vs]
         out += [(v, lang) for d in C.ACK.values() for lang, v in d.items()]
+        out += [(v, lang) for lang, vs in C.HOLD.items() for v in vs]
+        out += [(v, lang) for lang, v in C.QUE_CAMBIAR.items()]
         # lo que ahora dice el CÓDIGO (compositor y carril rápido): sin voz en caché no habría ganado nada
         out += [(v, lang) for d in list(C.SPEAK.values()) + list(C.ASK.values()) for lang, v in d.items() if "{" not in v]
         out += [(v, lang) for d in C.DONE.values() for lang, v in d.items() if "{" not in v]
@@ -290,6 +294,17 @@ class TwilioCall(demo.VoiceCall):
         except Exception as e:  # noqa: BLE001
             await self.emit("log", msg=f"arranque: {e}")
         await self.emit("state", state=self.call.snapshot())
+
+    def render(self, text: str):
+        """La voz de una frase: en la lengua de la llamada, con las horas dichas como las dice una persona y, si la
+        nota de la ficha lo pide (oye mal, llama con ruido), más despacio."""
+        s = getattr(self.call, "s", None)
+        lang = getattr(s, "lang", None)
+        try:
+            slow = bool(set(getattr(s, "trato", None) or []) & ficha.LENTO)
+            return MOUTH.render(S.hablado(text, lang), lang=lang, fmt=self.AUDIO_FMT, slow=slow)
+        except Exception:  # noqa: BLE001
+            return MOUTH.render(text, lang=lang, fmt=self.AUDIO_FMT)
 
     async def speak(self, text: str, act: str, source: str = "plantilla"):
         """La voz del agente en µ-law a 8 kHz, en tramas de 20 ms y a ritmo casi real (para poder callarse)."""
