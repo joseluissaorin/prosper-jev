@@ -1389,6 +1389,8 @@ class Conv:
         events, ended = [], False
         tools = TOOLS
         self._id_loops = 0
+        vistas: set = set()
+        repetida = False
         for step in range(7):
             t0 = time.perf_counter()
             try:
@@ -1419,6 +1421,10 @@ class Conv:
             results, raw = [], []
             for fc in calls:
                 args = dict(fc.args or {})
+                firma = (fc.name, json.dumps(args, sort_keys=True, default=str))
+                if firma in vistas and fc.name not in TERMINAL:
+                    repetida = True
+                vistas.add(firma)
                 try:
                     res = await self.tool(fc.name, args)
                 except Exception as e:  # noqa: BLE001
@@ -1453,6 +1459,14 @@ class Conv:
                 events.append(self._log("composed", step=step, ms=ms, tools=[fc.name for fc in calls], said=said_here[:200]))
                 s.msgs.append(types.Content(role="model", parts=[types.Part(text=said_here)]))
                 return said_here, ended, events
+            if repetida and tools is not None:
+                # la misma herramienta con los mismos argumentos da lo mismo: a hablar. (Sin esto el planificador repetía la
+                # búsqueda siete veces por turno y el turno acababa sin frase: «¿me lo puede repetir?» en bucle.)
+                tools = None
+                events.append(self._log("tools_off", why="la misma llamada a herramienta dos veces en el turno"))
+                s.msgs.append(types.Content(role="user", parts=[types.Part(text="(You already made exactly that tool call in this turn and got the same "
+                                                                                 "result. Stop calling tools now: tell the caller, in one or two short "
+                                                                                 "sentences, what you found and what the options are.)")]))
             for fc, r_ in zip(calls, raw):
                 if fc.name == "identify_patient" and isinstance(r_, dict) and r_.get("status") in ASK:
                     self._id_loops = getattr(self, "_id_loops", 0) + 1
@@ -2048,6 +2062,13 @@ CLINIC VOCABULARY
         s.checked = True
         a = await API.availability_span(d_from, d_to, **kw)
         slots = [x for x in a["slots"] if ok(x)]
+        if not slots and lang_req and not provider_language:
+            # quien habla catalán prefiere un médico que lo hable, pero nadie lo ha pedido: si con ese filtro no hay nada, se
+            # busca con cualquiera. (Arnés del 20-09, idiomas-031: la única doctora que habla catalán no entraba en su póliza
+            # y a la persona se le dijo que no había huecos de medicina general en toda la red.)
+            self._log("language_filter_relaxed", lang=lang_req)
+            lang_req = ""
+            slots = [x for x in a["slots"] if ok(x)]
         blocked = [{"doctor": self.prov(b["provider_id"])["name"], "rule": b["restriction"]} for b in a.get("blocked", [])]
         note_leave = ""
         lv = (self.prov(provider_id).get("leave") or {}) if provider_id else {}
@@ -2102,9 +2123,15 @@ CLINIC VOCABULARY
                 res["next_step"] = ("tell them nothing fits and offer this alternative (read it back); if they refuse and want nothing else, "
                                     "decline(no_availability)")
                 return res
-        res["next_step"] = ("nothing in the calendar fits THOSE conditions. Do not give up yet: tell them which condition has no availability "
-                            "(that part of the day, that doctor, those dates) and offer to look without it; call find_slots again without that "
-                            "condition if they agree. Only decline(no_availability) if they refuse every alternative.")
+        puestas = [n for n, v in (("date", date_from or date_to), ("time of day", time_from or time_to or part_of_day not in ("", "any")),
+                                  ("weekday", weekdays), ("doctor", provider_id), ("site", location_id), ("not_before", not_before)) if v]
+        if puestas:
+            res["next_step"] = (f"nothing fits with these conditions: {', '.join(puestas)}. Do NOT search again now: tell the caller which condition "
+                                "has no availability and ask whether they want you to look without it. Only if they refuse every alternative, "
+                                "decline(no_availability).")
+        else:
+            res["next_step"] = ("nothing in the calendar fits and there is no condition left to relax. Do NOT call find_slots again: explain it "
+                                "to the caller and decline(no_availability) unless they change what they want.")
         return res
 
     def site_open(self, lid: str, d: date, part: str) -> bool:

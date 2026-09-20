@@ -533,7 +533,7 @@ body.en-llamada .cuna, body.en-acta .cuna { display: none; }
 .pista-turno .carril i.h { background: none; border: 1px solid var(--tinta); }
 .pista-turno .carril span { position: absolute; top: 50%; transform: translateY(-50%); font-size: .6rem; white-space: nowrap; padding-left: .4rem; color: var(--tinta); }
 .pista-turno .calla { grid-column: 2; position: relative; height: 1.4rem; }
-.pista-turno .calla b { position: absolute; left: 70%; top: 0; bottom: -11.5rem; border-left: 1.5px dashed var(--terracota); padding-left: .4rem; color: var(--terracota); font-weight: 600; white-space: nowrap; z-index: 2; pointer-events: none; }
+.pista-turno .calla b { position: absolute; left: 70%; top: -12.2rem; bottom: 0; display: flex; align-items: flex-end; border-left: 1.5px dashed var(--terracota); padding-left: .4rem; color: var(--terracota); font-weight: 600; white-space: nowrap; z-index: 2; pointer-events: none; }
 .turno .moraleja { margin-top: 1.4rem; font-size: clamp(1.15rem, 1.9vw, 1.5rem); line-height: 1.32; max-width: 46rem; letter-spacing: -.01em; }
 .turno .moraleja b { font-weight: 500; font-style: italic; color: var(--terracota); }
 
