@@ -928,7 +928,9 @@ class Conv:
                 s.rejected.append((o["slot"]["provider_id"], o["slot"]["start_time"], o.get("sig", "") if pref else "*"))
             s.menu = [k for k in s.menu if k not in last]
             out.append(self._log("offer_rejected", offers=last, accepts=round(p.n("accepts"), 2)))
-            if act0 == "reject" and not pref and len(text.split()) <= 5 and p.n("asks_question", 0.0) < 0.5 and not s.asked.get("_que_cambiar"):
+            sono = any(str(parse_slot(s.offers[k]["slot"]["start_time"]).hour % 12 or 12) in re.findall(r"\d{1,2}", s.last_agent or "") or
+                       str(parse_slot(s.offers[k]["slot"]["start_time"]).hour) in re.findall(r"\d{1,2}", s.last_agent or "") for k in last)
+            if sono and act0 == "reject" and not pref and len(text.split()) <= 5 and p.n("asks_question", 0.0) < 0.5 and not s.asked.get("_que_cambiar"):
                 # un «no» a secas no dice qué no encaja. El 20-09 una llamada recibió cinco huecos seguidos a ciegas (otro
                 # médico, otra sede, tres semanas antes) hasta que la persona explicó lo que quería. Se pregunta, una vez.
                 s.asked["_que_cambiar"] = 1
@@ -1069,8 +1071,14 @@ class Conv:
         ws = [w for w in ws if w]
         if not ws:
             return True
-        datos = sum(1 for w in ws if any(c.isdigit() for c in w) or (w[:1].isupper() and fold(w) not in FUNCIONALES) or len(w) <= 2)
-        return datos >= max(2, int(len(ws) * 0.6))
+        # la primera palabra de cada frase va en mayúscula sin ser un nombre, y «I», «I'd», «I'm» tampoco lo son. Medido el
+        # 20-09-2026: «Hi. I'd like to see a GP this coming Thursday, anytime.» contaba como «casi todo datos» (Hi, I'd, to,
+        # a, GP, Thursday) y a una persona que hablaba inglés se le contestó en castellano.
+        inicial = {0} | {i + 1 for i, w in enumerate(text.split()) if w.rstrip()[-1:] in ".?!"}
+        datos = sum(1 for i, w in enumerate(ws) if any(c.isdigit() for c in w) or (
+            w[:1].isupper() and i not in inicial and fold(w) not in FUNCIONALES and not re.match(r"^I(['’](d|m|ll|ve))?$", w)))
+        corrientes = sum(1 for i, w in enumerate(ws) if w.islower() and len(w) > 2)
+        return datos >= max(2, int(len(ws) * 0.6)) and corrientes < 4
 
     def set_lang(self, p: P, text: str):
         s = self.s
