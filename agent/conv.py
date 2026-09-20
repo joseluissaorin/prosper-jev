@@ -2350,6 +2350,23 @@ CLINIC VOCABULARY
             ins = next((k for k, v in plans.items() if fold(ins) and (fold(v).startswith(fold(ins)[:4]) or fold(ins) in fold(v))), ins)
         if ins not in plans:
             return {"error": f"unknown insurer; the clinic's plans are: {', '.join(plans.values())}"}
+        # la aseguradora la dice quien llama, no el modelo. Réplica del 20-09: dos altas de Prosper fallaban solo por esto
+        # (decían Cigna y Mapfre; se registró «privado» y «sanitas», que nadie había nombrado) y el arnés lo sacaba también.
+        dicho = fold(" ".join(h[8:] for h in self.s.history if h.startswith("Caller:")))
+        dicho = re.sub(r"\b([a-z]) (?=[a-z]\b)", r"\1", dicho)             # «d k v» → «dkv»
+        oida, _sc = leer.best_match(dicho, {k: v for k, v in plans.items() if k != "privado"})
+        sin_seguro = bool(re.search(r"\b(private(ly)?|privad[oa]|no insurance|sin seguro|pay (for it )?myself|de pago|particular|self.?pay|out of pocket|"
+                                    r"sense asseguranca|no tengo seguro|don'?t have (any )?insurance)\b", dicho))
+        if oida and oida != ins:
+            self._log("insurer_corrected", was=ins, now=oida)
+            ins = oida
+        elif not oida and not (ins == "privado" and sin_seguro) and fold(plans[ins]).split()[0] not in dicho:
+            n_ins = self.s.asked.get("_aseguradora", 0) + 1
+            self.s.asked["_aseguradora"] = n_ins
+            if n_ins <= 2:
+                self._log("insurer_invented", dropped=ins)
+                return {"error": "the caller has not said which insurance company they have: ask them (a company name, or none / private). "
+                                 "Do not guess it."}
         body = {"given_name": r["given_name"].strip(), "first_surname": r["first_surname"].strip(), "second_surname": r["second_surname"].strip(),
                 "national_id": nid, "date_of_birth": r["date_of_birth"], "phone": ph, "email": em, "insurer": ins}
         rid = f"r{len(s.prepared) + 1}"
